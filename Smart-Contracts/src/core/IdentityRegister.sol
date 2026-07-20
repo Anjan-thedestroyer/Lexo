@@ -9,21 +9,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
  * @title IdentityRegister
  * @author Abinash Paudel
  * @notice Privacy-focused identity registry mapping a passport-derived identity hash
- *         to multiple authorized Web3 wallets. Registration is redeemed by the user's
- *         own wallet against a backend-signed EIP-712 attestation, rather than the
- *         backend submitting transactions directly — this shifts gas to the user and
- *         gives proof-of-wallet-ownership for free (msg.sender IS the wallet).
- *
- * @dev State-machine notes (read before modifying):
- *      - `identityToWallets[hash].length` is the ONLY source of truth for wallet
- *        count. There is no separate counter, specifically to avoid a class of bug
- *        where a counter and the array it's meant to track drift apart.
- *      - `verified[hash]` becomes true the moment the FIRST wallet is registered
- *        under a hash. It can be turned off by `unverify` (soft revoke — records are
- *        preserved) and back on by `reverify` (explicit re-approval). Neither of
- *        those two functions ever pushes to or pops from the wallets array — state
- *        changes to "is this identity currently trusted" and "which wallets does it
- *        own" are deliberately kept as separate, non-interfering operations.
+ *         to multiple authorized Web3 wallets via EIP-712 backend attestations.
  */
 contract IdentityRegister is Ownable, EIP712 {
     using ECDSA for bytes32;
@@ -34,23 +20,23 @@ contract IdentityRegister is Ownable, EIP712 {
     /// @notice Maximum number of wallets allowed under a single identity.
     uint256 public constant MAX_WALLET = 5;
 
-    /// @notice identityHash => wallets currently linked to it.
-    mapping(bytes32 => address[]) private identityToWallets;
+    struct Identity {
+        bool verified;          // Slot 0 (1 byte)
+        address rootWallet;     // Slot 0 (20 bytes) -> Total 21/32 bytes
+        address[] wallets;      // Slot 1 (Array pointer)
+    }
+
+    /// @notice identityHash => Identity record
+    mapping(bytes32 => Identity) private identities;
 
     /// @notice wallet => identityHash it belongs to (bytes32(0) if unlinked).
     mapping(address => bytes32) public walletToIdentity;
 
-    /// @notice identityHash => manually restricted (banned) by the verifier.
+    /// @notice Independent mapping so restrictions survive unverify/re-registration cycles.
     mapping(bytes32 => bool) public restricted;
-
-    /// @notice identityHash => currently verified/trusted.
-    mapping(bytes32 => bool) public verified;
 
     /// @notice Per-wallet nonce for attestation replay protection.
     mapping(address => uint256) public nonces;
-
-    /// @notice digest => already redeemed, for attestation replay protection.
-    mapping(bytes32 => bool) public usedAttestations;
 
     bytes32 private constant ATTESTATION_TYPEHASH = keccak256(
         "WalletAttestation(address wallet,bytes32 identityHash,uint256 deadline,uint256 nonce)"
@@ -62,6 +48,7 @@ contract IdentityRegister is Ownable, EIP712 {
     event Verified(bytes32 indexed hash);
     event Unverified(bytes32 indexed hash);
     event IdentityRestricted(bytes32 indexed hash, bool isRestricted);
+    event RootWalletChanged(bytes32 indexed hash, address indexed newRootWallet);
 
     error NotVerifier();
     error NotAuthorizedIdentityOwner();
@@ -69,12 +56,15 @@ contract IdentityRegister is Ownable, EIP712 {
     error WalletNotLinkedToIdentity();
     error MaximumWalletCreated();
     error CannotRemoveLastWallet();
+    error CannotDeleteRootWallet();
     error IdentityIsRestricted();
     error IdentityNotVerified();
     error IdentityHasNoWallets();
     error AttestationExpired();
-    error AttestationAlreadyUsed();
     error InvalidAttestationSigner();
+    error InvalidVerifierAddress();
+    error ZeroIdentityHash(); // Guard against sentinel-value state collisions
+
 
     modifier onlyVerifier() {
         if (msg.sender != verifier) revert NotVerifier();
@@ -85,25 +75,27 @@ contract IdentityRegister is Ownable, EIP712 {
 
     /// @notice Updates the trusted attestation-signing address.
     function addVerifier(address _verifierAddress) external onlyOwner {
+        if (_verifierAddress == address(0)) revert InvalidVerifierAddress();
         verifier = _verifierAddress;
         emit VerifierChanged(_verifierAddress);
     }
 
     /**
-     * @notice Registers the CALLER's wallet under an identity hash, redeeming a
-     *         backend-signed attestation. msg.sender must be the wallet itself.
-     * @param identityHash The identity this wallet is being linked to.
-     * @param deadline Unix timestamp after which this attestation can't be redeemed.
-     * @param signature The verifier's EIP-712 signature over the attestation data.
+     * @notice Registers the CALLER's wallet under an identity hash using a signed EIP-712 attestation.
      */
     function registerWithAttestation(
         bytes32 identityHash,
         uint256 deadline,
         bytes calldata signature
     ) external {
+        // Enforce non-zero hash to protect sentinel value integrity
+        if (identityHash == bytes32(0)) revert ZeroIdentityHash();
         if (block.timestamp > deadline) revert AttestationExpired();
         if (restricted[identityHash]) revert IdentityIsRestricted();
         if (walletToIdentity[msg.sender] != bytes32(0)) revert WalletAlreadyLinked();
+
+        Identity storage id = identities[identityHash];
+        uint256 walletCounts = id.wallets.length;
 
         uint256 nonce = nonces[msg.sender];
         bytes32 structHash = keccak256(
@@ -111,31 +103,27 @@ contract IdentityRegister is Ownable, EIP712 {
         );
         bytes32 digest = _hashTypedDataV4(structHash);
 
-        if (usedAttestations[digest]) revert AttestationAlreadyUsed();
         if (digest.recover(signature) != verifier) revert InvalidAttestationSigner();
 
-        usedAttestations[digest] = true;
         nonces[msg.sender] = nonce + 1;
 
-        address[] storage wallets = identityToWallets[identityHash];
-        bool isRoot = wallets.length == 0;
+        bool isRoot = walletCounts == 0;
 
         if (isRoot) {
-            verified[identityHash] = true;
+            id.verified = true;
+            id.rootWallet = msg.sender;
             emit Verified(identityHash);
         } else {
-            if (!verified[identityHash]) revert IdentityNotVerified();
-            if (wallets.length >= MAX_WALLET) revert MaximumWalletCreated();
+            if (!id.verified) revert IdentityNotVerified();
+            if (walletCounts >= MAX_WALLET) revert MaximumWalletCreated();
         }
 
-        wallets.push(msg.sender);
+        id.wallets.push(msg.sender);
         walletToIdentity[msg.sender] = identityHash;
 
         emit WalletLinked(identityHash, msg.sender, isRoot);
     }
 
-    /// @notice Returns the EIP-712 digest for a given attestation — lets the backend
-    ///         (or tests) verify a signature will recover correctly before issuing it.
     function getAttestationDigest(
         address wallet,
         bytes32 identityHash,
@@ -148,77 +136,100 @@ contract IdentityRegister is Ownable, EIP712 {
         return _hashTypedDataV4(structHash);
     }
 
-    /// @notice Explicit re-approval of a previously-unverified identity. Does NOT
-    ///         touch the wallets array or push any wallet — pure state flip, so it
-    ///         can never desync wallet count from the array (see contract-level note).
-    function reverify(bytes32 identityHash) external onlyVerifier {
-        if (identityToWallets[identityHash].length == 0) revert IdentityHasNoWallets();
-        verified[identityHash] = true;
-        emit Verified(identityHash);
-    }
-
-    /// @notice Soft-revokes an identity. Records are preserved; wallets stop passing
-    ///         isVerified() until reverify() is explicitly called.
+    /**
+     * @notice Purges wallet mappings for an identity hash.
+     */
     function unverify(bytes32 identityHash) external onlyVerifier {
-        verified[identityHash] = false;
+        if (identityHash == bytes32(0)) revert ZeroIdentityHash();
+        Identity storage id = identities[identityHash];
+        uint256 len = id.wallets.length;
+        
+        if (len == 0) revert IdentityHasNoWallets();
+
+        for (uint256 i = 0; i < len; ++i) {
+            delete walletToIdentity[id.wallets[i]];
+        }
+
+        for (uint256 i = 0; i < len; ++i) {
+            id.wallets.pop();
+        }
+
+        delete identities[identityHash];
         emit Unverified(identityHash);
     }
 
-    /// @notice Bans every wallet under this identity hash. Idempotent.
     function restrict(bytes32 identityHash) external onlyVerifier {
+        if (identityHash == bytes32(0)) revert ZeroIdentityHash();
         restricted[identityHash] = true;
         emit IdentityRestricted(identityHash, true);
     }
 
-    /// @notice Lifts a restriction — admin recovery path for false positives.
     function unrestrict(bytes32 identityHash) external onlyVerifier {
+        if (identityHash == bytes32(0)) revert ZeroIdentityHash();
         restricted[identityHash] = false;
         emit IdentityRestricted(identityHash, false);
     }
 
     /**
-     * @notice Unlinks a wallet from its identity. Callable by the identity's own
-     *         verified owner (any linked wallet) or by the verifier.
-     * @dev Gas-optimized swap-and-pop. Reverts if it would leave zero wallets —
-     *      an identity must always retain at least one anchor wallet; use restrict()
-     *      to ban an identity entirely instead of removing every wallet.
+     * @notice Removes a wallet from an identity profile.
      */
     function removeWallet(bytes32 identityHash, address wallet) external {
-        bool callerIsOwner = walletToIdentity[msg.sender] == identityHash && verified[identityHash];
+        if (identityHash == bytes32(0)) revert ZeroIdentityHash();
+        Identity storage id = identities[identityHash];
+        uint256 walletCounts = id.wallets.length;
+
+        bool callerIsOwner = walletToIdentity[msg.sender] == identityHash && id.verified;
         if (!callerIsOwner && msg.sender != verifier) revert NotAuthorizedIdentityOwner();
         if (walletToIdentity[wallet] != identityHash) revert WalletNotLinkedToIdentity();
+        if (id.rootWallet == wallet && walletCounts > 1) revert CannotDeleteRootWallet();
 
-        address[] storage wallets = identityToWallets[identityHash];
-        if (wallets.length <= 1) revert CannotRemoveLastWallet();
 
-        delete walletToIdentity[wallet];
+        if (walletCounts <= 1) revert CannotRemoveLastWallet();
+        uint256 length = id.wallets.length;
 
-        uint256 length = wallets.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (wallets[i] == wallet) {
-                wallets[i] = wallets[length - 1];
-                wallets.pop();
+        for (uint256 i; i < length; ++i) {
+            if (id.wallets[i] == wallet) {
+                id.wallets[i] = id.wallets[length - 1];
+                id.wallets.pop();
                 break;
             }
         }
 
+        delete walletToIdentity[wallet];
         emit WalletRemoved(identityHash, wallet);
     }
 
-    /// @notice All wallets currently linked to an identity hash.
+    function changeRootWallet(bytes32 identityHash, address newRootWallet) external {
+        if (identityHash == bytes32(0)) revert ZeroIdentityHash();
+        Identity storage id = identities[identityHash];
+
+        bool callerIsOwner = walletToIdentity[msg.sender] == identityHash && id.verified;
+        if (!callerIsOwner && msg.sender != verifier) revert NotAuthorizedIdentityOwner();
+        if (walletToIdentity[newRootWallet] != identityHash) revert WalletNotLinkedToIdentity();
+
+        id.rootWallet = newRootWallet;
+        emit RootWalletChanged(identityHash, newRootWallet);
+    }
+
+    /// @notice Returns full Identity struct metadata.
+    function getIdentity(bytes32 identityHash) external view returns (bool isVerifiedStatus, bool isRestrictedStatus, address root, address[] memory walletList) {
+        Identity storage id = identities[identityHash];
+        return (id.verified, restricted[identityHash], id.rootWallet, id.wallets);
+    }
+
     function getWallets(bytes32 identityHash) external view returns (address[] memory) {
-        return identityToWallets[identityHash];
+        return identities[identityHash].wallets;
     }
 
-    /// @notice Wallet count for an identity hash (== array length, single source of truth).
     function walletCount(bytes32 identityHash) external view returns (uint256) {
-        return identityToWallets[identityHash].length;
+        return identities[identityHash].wallets.length;
     }
 
-    /// @notice Whether an address is currently a verified, unrestricted wallet.
-    ///         This is the function EscrowCore should call before every deposit/release.
     function isVerified(address wallet) external view returns (bool) {
-        bytes32 id = walletToIdentity[wallet];
-        return id != bytes32(0) && verified[id] && !restricted[id];
+        bytes32 idHash = walletToIdentity[wallet];
+        if (idHash == bytes32(0)) return false;
+
+        Identity storage id = identities[idHash];
+        return id.verified && !restricted[idHash];
     }
 }

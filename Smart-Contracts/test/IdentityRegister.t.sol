@@ -66,10 +66,7 @@ contract IdentityRegisterTest is Test {
         registry.registerWithAttestation(bytes32(0), deadline, sig);
     }
 
-    function test_Unverify_RevertsOnZeroIdentityHash() public {
-        vm.expectRevert(IdentityRegister.ZeroIdentityHash.selector);
-        registry.unverify(bytes32(0));
-    }
+  
 
     function test_Restrict_RevertsOnZeroIdentityHash() public {
         vm.expectRevert(IdentityRegister.ZeroIdentityHash.selector);

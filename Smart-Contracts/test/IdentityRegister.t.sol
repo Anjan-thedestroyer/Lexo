@@ -70,11 +70,13 @@ contract IdentityRegisterTest is Test {
 
     function test_Restrict_RevertsOnZeroIdentityHash() public {
         vm.expectRevert(IdentityRegister.ZeroIdentityHash.selector);
+        vm.prank(verifierAddr);
         registry.restrict(bytes32(0));
     }
 
     function test_RemoveWallet_RevertsOnZeroIdentityHash() public {
         vm.expectRevert(IdentityRegister.ZeroIdentityHash.selector);
+        vm.prank(verifierAddr);
         registry.removeWallet(bytes32(0), walletA);
     }
 
@@ -193,7 +195,7 @@ contract IdentityRegisterTest is Test {
 
         assertTrue(registry.isVerified(walletA));
         assertTrue(registry.isVerified(walletB));
-
+        vm.prank(verifierAddr);
         registry.restrict(hash1);
 
         assertFalse(registry.isVerified(walletA));
@@ -202,6 +204,7 @@ contract IdentityRegisterTest is Test {
 
     function test_RestrictedIdentity_CannotRegisterNewWallets() public {
         _registerWallet(walletA, hash1, verifierPk);
+        vm.prank(verifierAddr);
         registry.restrict(hash1);
 
         uint256 deadline = block.timestamp + 1 hours;
@@ -214,7 +217,9 @@ contract IdentityRegisterTest is Test {
 
     function test_RestrictionSurvivesUnverify() public {
         _registerWallet(walletA, hash1, verifierPk);
+        vm.prank(verifierAddr);
         registry.restrict(hash1);
+        vm.prank(verifierAddr);
         registry.unverify(hash1);
 
         assertTrue(registry.restricted(hash1));
@@ -227,7 +232,9 @@ contract IdentityRegisterTest is Test {
     }
 
     function test_Unrestrict_AllowsRegistrationAgain() public {
+        vm.prank(verifierAddr);
         registry.restrict(hash1);
+        vm.prank(verifierAddr);
         registry.unrestrict(hash1);
 
         _registerWallet(walletA, hash1, verifierPk);
@@ -238,13 +245,14 @@ contract IdentityRegisterTest is Test {
 
     function test_Unverify_RevertsIfNoWallets() public {
         vm.expectRevert(IdentityRegister.IdentityHasNoWallets.selector);
+        vm.prank(verifierAddr);
         registry.unverify(hash1);
     }
 
     function test_Unverify_PurgesAllWalletsAndIdentityRecord() public {
         _registerWallet(walletA, hash1, verifierPk);
         _registerWallet(walletB, hash1, verifierPk);
-
+        vm.prank(verifierAddr);
         registry.unverify(hash1);
 
         assertEq(registry.walletCount(hash1), 0);
@@ -259,6 +267,7 @@ contract IdentityRegisterTest is Test {
 
     function test_UnverifiedIdentity_FreshRegistrationBecomesNewRoot() public {
         _registerWallet(walletA, hash1, verifierPk);
+        vm.prank(verifierAddr);
         registry.unverify(hash1);
 
         uint256 deadline = block.timestamp + 1 hours;

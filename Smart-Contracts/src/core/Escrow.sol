@@ -9,12 +9,24 @@ import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
 
 /**
  * @title Lexo EscrowCore Prototype
- * @author Abinash
+ * @author Abinash Paudel
  * @notice Milestone-based ERC20 escrow engine with pull-over-push claims.
  */
 contract EscrowCore is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
+
     IIdentityRegister public identityRegister;
+    uint256 public constant MAX_MILESTONES = 15;
+
+    // Custom Errors
+    error LengthMismatch();
+    error InvalidMilestoneCount();
+    error InvalidTokenAddress();
+    error NotAuthorized();
+    error InvalidDealStatus();
+    error NothingToWithdraw();
+    error InsufficientBalance();
+    error AllMilestonesCompleted();
 
     enum Status { Created, InProgress, Disputed, Completed, Canceled, Refunded }
 
@@ -52,7 +64,7 @@ contract EscrowCore is Ownable, ReentrancyGuard {
         identityRegister = IIdentityRegister(_identityRegister);
     }
 
-    modifier onlyVerified(){
+    modifier onlyVerified() {
         require(identityRegister.isVerified(msg.sender), "Not a verified user");
         _;
     }
@@ -62,7 +74,7 @@ contract EscrowCore is Ownable, ReentrancyGuard {
      */
     function withdraw(IERC20 _token) external onlyVerified nonReentrant {
         uint256 amount = pendingWithdrawals[msg.sender][_token];
-        require(amount > 0, "No funds to withdraw");
+        if (amount == 0) revert NothingToWithdraw();
 
         pendingWithdrawals[msg.sender][_token] = 0;
         _token.safeTransfer(msg.sender, amount);
@@ -79,9 +91,9 @@ contract EscrowCore is Ownable, ReentrancyGuard {
         string[] memory _description,
         uint256[] memory _amount
     ) external onlyVerified nonReentrant {
-        require(_description.length == _amount.length, "Length mismatch");
-        require(_amount.length > 0 && _amount.length <= 20, "Invalid milestone count");
-        require(address(_token) != address(0), "Invalid token");
+        if (_description.length != _amount.length) revert LengthMismatch();
+        if (_amount.length == 0 || _amount.length > MAX_MILESTONES) revert InvalidMilestoneCount();
+        if (address(_token) == address(0)) revert InvalidTokenAddress();
 
         uint256 total = 0;
         for (uint256 i = 0; i < _amount.length; i++) {
@@ -118,16 +130,16 @@ contract EscrowCore is Ownable, ReentrancyGuard {
      */
     function completeMilestone(uint256 _dealId) external onlyVerified nonReentrant {
         Deal storage deal = deals[_dealId];
-        require(deal.payer == msg.sender, "Not authorized");
-        require(deal.status == Status.InProgress, "Deal not active");
-        
+        if (deal.payer != msg.sender) revert NotAuthorized();
+        if (deal.status != Status.InProgress) revert InvalidDealStatus();
+
         uint256 currentId = deal.currentMilestone;
-        require(currentId < deal.totalMilestones, "All milestones completed");
+        if (currentId >= deal.totalMilestones) revert AllMilestonesCompleted();
 
         Milestone storage milestone = milestones[_dealId][currentId];
 
         uint256 amount = milestone.amount;
-        require(deal.totalBalance >= amount, "Insufficient deal balance");
+        if (deal.totalBalance < amount) revert InsufficientBalance();
 
         // Effects
         milestone.isCompleted = true;
@@ -146,28 +158,28 @@ contract EscrowCore is Ownable, ReentrancyGuard {
         }
     }
 
-    // /**
-    //  * @notice Allows arbitration/owner to resolve a dispute safely.
-    //  */
-    // function resolveDispute(
-    //     uint256 _dealId,
-    //     uint256 _payerAmount,
-    //     uint256 _payeeAmount
-    // ) external onlyOwner onlyVerified nonReentrant {
-    //     Deal storage deal = deals[_dealId];
-    //     require(deal.status == Status.Disputed, "Not in dispute");
-    //     require(_payerAmount + _payeeAmount == deal.totalBalance, "Math mismatch");
+    /**
+     * @notice Allows arbitration/owner to resolve a dispute safely.
+     */
+    function resolveDispute(
+        uint256 _dealId,
+        uint256 _payerAmount,
+        uint256 _payeeAmount
+    ) external onlyOwner onlyVerified nonReentrant {
+        Deal storage deal = deals[_dealId];
+        if (deal.status != Status.Disputed) revert InvalidDealStatus();
+        if (_payerAmount + _payeeAmount != deal.totalBalance) revert LengthMismatch();
 
-    //     deal.totalBalance = 0;
-    //     deal.status = Status.Refunded;
+        deal.totalBalance = 0;
+        deal.status = Status.Refunded;
 
-    //     if (_payerAmount > 0) {
-    //         pendingWithdrawals[deal.payer][deal.token] += _payerAmount;
-    //     }
-    //     if (_payeeAmount > 0) {
-    //         pendingWithdrawals[deal.payee][deal.token] += _payeeAmount;
-    //     }
+        if (_payerAmount > 0) {
+            pendingWithdrawals[deal.payer][deal.token] += _payerAmount;
+        }
+        if (_payeeAmount > 0) {
+            pendingWithdrawals[deal.payee][deal.token] += _payeeAmount;
+        }
 
-    //     emit DisputeResolved(_dealId, _payerAmount, _payeeAmount);
+        emit DisputeResolved(_dealId, _payerAmount, _payeeAmount);
     }
 }

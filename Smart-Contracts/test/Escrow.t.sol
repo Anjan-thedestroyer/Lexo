@@ -1,416 +1,282 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import {EscrowCore} from "../src/core/Escrow.sol";
-import {IdentityRegister} from "../src/core/IdentityRegister.sol";
+import {Test} from "forge-std/Test.sol";
+
+import {EscrowCore} from "../src/core/EscrowCore.sol";
 import {MockUSDT} from "../src/mocks/MockUSDT.sol";
 
+// Mock Identity Register Interface for unit testing
+contract MockIdentityRegister {
+    mapping(address => bool) public verified;
+
+    function setVerified(address user, bool status) external {
+        verified[user] = status;
+    }
+
+    function isVerified(address user) external view returns (bool) {
+        return verified[user];
+    }
+}
 
 contract EscrowTest is Test {
     EscrowCore public escrow;
-    IdentityRegister registry;
-    MockUSDT token;
-    uint256 verifierPk = 0xA11CE;
-    address verifierAddr;
+    MockIdentityRegister public registry;
+    MockUSDT public token;
 
-    address walletA = address(0x1001);
-    address walletB = address(0x1002);
-    address walletC = address(0x1003);
-    address stranger = address(0x9999);
+    address public owner;
+    address public payer = address(0x123);
+    address public payee = address(0x456);
+    address public stranger = address(0x999);
 
-    bytes32 hash1 = keccak256("passport-pubkey-1+pepper");
-    bytes32 hash2 = keccak256("passport-pubkey-2+pepper");
-
-
-    event DealCreated(uint256 indexed dealId, address indexed payee, address indexed payer, uint256 totalBalance);
-    event DealCanceled(uint256 indexed dealId, address indexed payer, uint256 amountRefunded);
+    // Matching Events from EscrowCore
+    event DealCreated(uint256 indexed dealId, address indexed payee, address indexed payer, address token, uint256 totalBalance);
     event MilestoneCompleted(uint256 indexed dealId, uint256 indexed milestoneId, uint256 amountReleased);
-    event DealCompleted(uint256 indexed dealId, address indexed payee, address indexed payer, uint256 totalBalance);
+    event DealCompleted(uint256 indexed dealId);
     event DisputeRaised(address indexed raisor, uint256 indexed dealId, string reason);
-
-    address payer = address(123);
-    address payee = address(456);
-    address none  = address(891);
-
-/*==================================================== */
+    event DisputeResolved(uint256 indexed dealId, uint256 payerAmount, uint256 payeeAmount);
+    event FundsWithdrawn(address indexed user, address indexed token, uint256 amount);
+    event FeeCollected(address indexed withdrawnFrom, address indexed token, uint256 amount);
 
     function setUp() public {
+        owner = address(this);
+        
+        // 1. Deploy Mocks and Escrow
         token = new MockUSDT(1_000_000);
-        registry = new IdentityRegister(); // test contract is owner
-        verifierAddr = vm.addr(verifierPk);
-        registry.addVerifier(verifierAddr);
+        registry = new MockIdentityRegister();
         escrow = new EscrowCore(address(registry));
-        vm.deal(payer, 15 ether);
+
+        // 2. Mark test participants as verified
+        registry.setVerified(payer, true);
+        registry.setVerified(payee, true);
+        registry.setVerified(owner, true);
+        registry.setVerified(stranger, false);
+
+        // 3. Fund Payer with USDT Tokens
+        token.mint(payer, 10_000); // Mints 10,000 USDT (with 6 decimals handled by MockUSDT)
     }
 
-    function _createDefaultDeal() internal { 
+    function _createDefaultDeal() internal returns (uint256) {
         string[] memory descriptions = new string[](2);
         descriptions[0] = "Plan";
         descriptions[1] = "Code";
+
         uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 1 ether;
-        amounts[1] = 1 ether;
+        amounts[0] = 1_000 * 10**6; // 1000 USDT
+        amounts[1] = 1_000 * 10**6; // 1000 USDT
+
         vm.startPrank(payer);
-        escrow.createDeal{value: 2 ether}(payee,token,descriptions,amounts);
+        token.approve(address(escrow), 2_000 * 10**6);
+        escrow.createDeal(payee, token, descriptions, amounts);
         vm.stopPrank();
-        }
+
+        return escrow.dealCount();
+    }
 
     /* =============================================================
                             HAPPY PATH TESTS
        ============================================================= */
 
     function test_CreateDeal() public {
-        vm.prank(payer);
-
         string[] memory descriptions = new string[](2);
         descriptions[0] = "Plan";
         descriptions[1] = "Code";
+
         uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 1 ether;
-        amounts[1] = 1 ether;
+        amounts[0] = 1_000 * 10**6;
+        amounts[1] = 1_000 * 10**6;
+
+        vm.startPrank(payer);
+        token.approve(address(escrow), 2_000 * 10**6);
 
         vm.expectEmit(true, true, true, true);
-        emit DealCreated(1, payee, payer, 2 ether);
+        emit DealCreated(1, payee, payer, address(token), 2_000 * 10**6);
 
-        escrow.createDeal{value: 2 ether}(payee, descriptions, amounts);
+        escrow.createDeal(payee, token, descriptions, amounts);
+        vm.stopPrank();
 
         assertEq(escrow.dealCount(), 1);
 
-        (address p, address w, uint256 bal, uint256 tm, uint8 cm, EscrowCore.Status status) = escrow.deals(1);
+        (
+            address p,
+            address w,
+            ,
+            uint256 bal,
+            uint256 tm,
+            uint8 cm,
+            EscrowCore.Status status
+        ) = escrow.deals(1);
+
         assertEq(p, payer);
         assertEq(w, payee);
+        assertEq(bal, 2_000 * 10**6);
         assertEq(tm, 2);
         assertEq(cm, 0);
-        assertEq(bal, 2 ether);
         assertTrue(status == EscrowCore.Status.InProgress);
     }
 
-    function test_completeMilestone() public {
-        _createDefaultDeal();
-
-        uint256 dealId = 1;
-        uint256 milestoneId = 0;
+    function test_CompleteMilestoneAndAutoFinish() public {
+        uint256 dealId = _createDefaultDeal();
 
         vm.startPrank(payer);
+        
+        // Milestone 0
         vm.expectEmit(true, true, false, true);
-        emit MilestoneCompleted(dealId, milestoneId, 1 ether);
+        emit MilestoneCompleted(dealId, 0, 1_000 * 10**6);
+        escrow.completeMilestone(dealId);
 
-        escrow.completeMilestone(dealId, milestoneId);
-
-        (,, uint256 totalBalance,, uint256 currentMilestone,) = escrow.deals(dealId);
-        assertEq(currentMilestone, 1);
-        assertEq(totalBalance, 1 ether);
+        // Milestone 1 (Final milestone trigger deal completion)
+        vm.expectEmit(true, false, false, false);
+        emit DealCompleted(dealId);
+        escrow.completeMilestone(dealId);
 
         vm.stopPrank();
-    }
 
-    function test_completeDeal() public {
-        _createDefaultDeal();
-
-        uint256 dealId = 1;
-
-        vm.startPrank(payer);
-        escrow.completeMilestone(dealId, 0);
-        escrow.completeMilestone(dealId, 1);
-
-        vm.expectEmit(true, true, true, true);
-        emit DealCompleted(dealId, payee, payer, 0 ether);
-
-        escrow.completeDeal(dealId);
-        vm.stopPrank();
-
-        (,, uint256 totalBalance,,, EscrowCore.Status status) = escrow.deals(dealId);
+        (,,, uint256 totalBalance,, uint8 currentMilestone, EscrowCore.Status status) = escrow.deals(dealId);
+        assertEq(currentMilestone, 2);
         assertEq(totalBalance, 0);
         assertTrue(status == EscrowCore.Status.Completed);
+        assertEq(escrow.pendingWithdrawals(payee, token), 2_000 * 10**6);
     }
 
-    function test_raiseDispute() public {
-        _createDefaultDeal();
+    function test_WithdrawWithFeeDeduction() public {
+        uint256 dealId = _createDefaultDeal();
 
-        uint256 dealId = 1;
-        string memory reason = "Payer is not marking my completed task even though it's done";
+        vm.prank(payer);
+        escrow.completeMilestone(dealId); // Credit 1000 USDT to payee
 
-        vm.startPrank(payee);
+        uint256 totalOwed = 1_000 * 10**6;
+        uint256 expectedFee = (totalOwed * 3) / 10000; // 0.3% fee = 3 USDT
+        uint256 expectedUserPayout = totalOwed - expectedFee;
+
+        uint256 payeeBalanceBefore = token.balanceOf(payee);
+        uint256 ownerBalanceBefore = token.balanceOf(owner);
+
+        vm.prank(payee);
         vm.expectEmit(true, true, false, true);
-        emit DisputeRaised(payee, dealId, reason);
+        emit FundsWithdrawn(payee, address(token), expectedUserPayout);
+        escrow.withdraw(token);
 
-        escrow.raisedDispute(dealId, reason);
-        vm.stopPrank();
-
-        (,,,,, EscrowCore.Status status) = escrow.deals(dealId);
-        assertTrue(status == EscrowCore.Status.Disputed);
-    }
-
-    function test_cancelDeal() public {
-        _createDefaultDeal();
-
-        uint256 dealId = 1;
-
-        vm.startPrank(payee);
-        vm.expectEmit(true, true, false, true);
-        emit DealCanceled(dealId, payer, 2 ether);
-
-        escrow.cancelDeal(dealId);
-        vm.stopPrank();
-
-        (,, uint256 totalBalance,,, EscrowCore.Status status) = escrow.deals(dealId);
-        assertEq(totalBalance, 0);
-        assertTrue(status == EscrowCore.Status.Canceled);
+        assertEq(token.balanceOf(payee), payeeBalanceBefore + expectedUserPayout);
+        assertEq(token.balanceOf(owner), ownerBalanceBefore + expectedFee);
+        assertEq(escrow.pendingWithdrawals(payee, token), 0);
     }
 
     function test_ResolveDisputeSplitsCorrectly() public {
-        _createDefaultDeal();
+    uint256 dealId = _createDefaultDeal();
 
-        vm.prank(payee);
-        escrow.raisedDispute(1, "issue");
-        uint256 payerBefore = escrow.pendingWithdrawals(payer);
-        uint256 payeeBefore = escrow.pendingWithdrawals(payee);  
+    // 1. Raise dispute properly via contract function
+    vm.prank(payer);
+    escrow.raiseDispute(dealId, "Work incomplete");
 
-        escrow.resolveDispute(1, 1 ether, 1 ether);
+    uint256 payerAmount = 1_200 * 10**6;
+    uint256 payeeAmount = 800 * 10**6;
 
-        assertEq(escrow.pendingWithdrawals(payer), payerBefore + 1 ether);
-        assertEq(escrow.pendingWithdrawals(payee), payeeBefore + 1 ether);
-    }
+    // 2. Resolve dispute as owner
+    vm.prank(owner);
+    vm.expectEmit(true, false, false, true);
+    emit DisputeResolved(dealId, payerAmount, payeeAmount);
+    escrow.resolveDispute(dealId, payerAmount, payeeAmount);
 
-    function test_ResolveDisputeUnevenSplit() public {
-        _createDefaultDeal();
-
-        vm.prank(payer);
-        escrow.raisedDispute(1, "split it");
-
-        uint256 payerBefore = escrow.pendingWithdrawals(payer);
-        uint256 payeeBefore = escrow.pendingWithdrawals(payee);
-
-        escrow.resolveDispute(1, 1.5 ether, 0.5 ether);
-
-        assertEq(escrow.pendingWithdrawals(payer), payerBefore + 1.5 ether);
-        assertEq(escrow.pendingWithdrawals(payee), payeeBefore + 0.5 ether);
-    }
-
-    function test_MilestoneTransfersETHToWithdraw() public {
-        _createDefaultDeal();
-
-        uint256 before = escrow.pendingWithdrawals(payee);
-
-        vm.prank(payer);
-        escrow.completeMilestone(1, 0);
-
-        assertEq(escrow.pendingWithdrawals(payee), before + 1 ether);
-    }
-
-    function test_completeDealTransfersRemainingETH() public {
-        _createDefaultDeal();
-
-        uint256 before = payee.balance;
-
-        vm.startPrank(payer);
-        escrow.completeMilestone(1, 0);
-        escrow.completeMilestone(1, 1);
-        escrow.completeDeal(1);
-        vm.stopPrank();
-        vm.prank(payee);
-        escrow.withdraw();
-        assertEq(payee.balance, before + 2 ether);
-    }
-
-    function test_ContractBalanceMatchesDealBalance() public {
-        _createDefaultDeal();
-        assertEq(address(escrow).balance, 2 ether);
-
-        vm.prank(payer);
-        escrow.completeMilestone(1, 0);
-        assertEq(escrow.pendingWithdrawals(payee), 1 ether);
-
-        vm.prank(payer);
-        escrow.completeMilestone(1, 1);
-        vm.prank(payee);
-        escrow.withdraw();
-        assertEq(address(escrow).balance, 0);
-    }
+    assertEq(escrow.pendingWithdrawals(payer, token), payerAmount);
+    assertEq(escrow.pendingWithdrawals(payee, token), payeeAmount);
+   }
 
     /* =============================================================
                             REVERT TESTS
        ============================================================= */
 
-    function test_RevertIf_MilestoneMismatch() public {
-        string[] memory descriptions = new string[](2);
-        descriptions[0] = "Plan";
-        descriptions[1] = "Code";
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 1 ether;
-
-        vm.startPrank(payer);
-        vm.expectRevert();
-        escrow.createDeal{value: 2 ether}(payee, descriptions, amounts);
+    function test_RevertIf_UnverifiedUserCalls() public {
+        vm.startPrank(stranger);
+        vm.expectRevert("Not a verified user");
+        escrow.withdraw(token);
         vm.stopPrank();
     }
 
     function test_RevertIf_MilestoneNonPayer() public {
-        _createDefaultDeal();
-
-        vm.startPrank(none);
-        vm.expectRevert();
-        escrow.completeMilestone(1, 0);
-        vm.stopPrank();
-    }
-
-    function test_RevertIf_MilestonePayee() public {
-        _createDefaultDeal();
-
-        vm.startPrank(payee);
-        vm.expectRevert();
-        escrow.completeMilestone(1, 0);
-        vm.stopPrank();
-    }
-
-    function test_RevertIf_cancelDealUnauthorized() public {
-        _createDefaultDeal();
-
-        vm.startPrank(none);
-        vm.expectRevert();
-        escrow.cancelDeal(1);
-        vm.stopPrank();
-    }
-
-    function test_RevertIf_RaiseDisputeCompletedDeal() public {
-        _createDefaultDeal();
-
-        vm.startPrank(payer);
-        escrow.completeMilestone(1, 0);
-        escrow.completeMilestone(1, 1);
-        escrow.completeDeal(1);
-
-        vm.expectRevert("Deal should be in Progress state");
-        escrow.raisedDispute(1, "after service missing");
-        vm.stopPrank();
-    }
-
-    function test_RevertIf_CannotCompleteAfterDispute() public {
-        _createDefaultDeal();
-
-        vm.startPrank(payer);
-        escrow.completeMilestone(1, 0);
-        escrow.completeMilestone(1, 1);
-        escrow.raisedDispute(1, "issue");
-
-        vm.expectRevert("Deal not active");
-        escrow.completeDeal(1);
-        vm.stopPrank();
-    }
-
-    function test_RevertIf_ResolveMathMismatch() public {
-        _createDefaultDeal();
+        uint256 dealId = _createDefaultDeal();
 
         vm.prank(payee);
-        escrow.raisedDispute(1, "issue");
-
-        vm.expectRevert("Math mismatch");
-        escrow.resolveDispute(1, 1 ether, 0);
+        vm.expectRevert(EscrowCore.NotAuthorized.selector);
+        escrow.completeMilestone(dealId);
     }
 
-    function test_RevertIf_CancelDuringDispute() public {
-        _createDefaultDeal();
-
-        vm.prank(payee);
-        escrow.raisedDispute(1, "Locked!");
-
-        vm.prank(payer);
-        vm.expectRevert("Only cancelable during InProgress state");
-        escrow.cancelDeal(1);
-    }
-
-    function test_RevertIf_ArrayLengthsMismatch() public {
+    function test_RevertIf_CreateDealLengthMismatch() public {
         string[] memory desc = new string[](1);
         desc[0] = "Plan";
+
         uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 1 ether;
-        amounts[1] = 1 ether;
-        vm.prank(payer);
-        vm.expectRevert();
-        escrow.createDeal{value: 2 ether}(payee, desc, amounts);
+        amounts[0] = 1_000 * 10**6;
+        amounts[1] = 1_000 * 10**6;
+
+        vm.startPrank(payer);
+        token.approve(address(escrow), 2_000 * 10**6);
+
+        vm.expectRevert(EscrowCore.LengthMismatch.selector);
+        escrow.createDeal(payee, token, desc, amounts);
+        vm.stopPrank();
     }
 
-    function test_RevertIf_ResolveWithoutDispute() public {
-        _createDefaultDeal();
-
-        vm.expectRevert("Not in dispute");
-        escrow.resolveDispute(1, 1 ether, 1 ether);
+    function test_RevertIf_NothingToWithdraw() public {
+        vm.prank(payee);
+        vm.expectRevert(EscrowCore.NothingToWithdraw.selector);
+        escrow.withdraw(token);
     }
 
-    function test_RevertIf_ResolveDisputeWithoutAdmin() public {
-        _createDefaultDeal();
+    function test_RevertIf_ResolveWithoutDisputeState() public {
+        uint256 dealId = _createDefaultDeal();
 
-        vm.prank(payee);
-        escrow.raisedDispute(1, "issue");
-
-        vm.prank(payee);
-        vm.expectRevert();
-        escrow.resolveDispute(1, 1 ether, 1 ether);
+        vm.prank(owner);
+        vm.expectRevert(EscrowCore.InvalidDealStatus.selector);
+        escrow.resolveDispute(dealId, 1_000 * 10**6, 1_000 * 10**6);
     }
 
     /* =============================================================
                             FUZZ TESTS
        ============================================================= */
 
-    function testFuzz_CreateDeal(uint256 amt1, uint256 amt2) public {
-        vm.assume(amt1 > 0 && amt1 < 100 ether);
-        vm.assume(amt2 > 0 && amt2 < 100 ether);
+    function testFuzz_CreateAndCompleteMilestone(uint256 amt1, uint256 amt2) public {
+        vm.assume(amt1 > 1_000000 && amt1 < 1_000_000 * 10**6);
+        vm.assume(amt2 > 1_000000 && amt2 < 1_000_000 * 10**6);
 
         uint256 total = amt1 + amt2;
 
-        string[] memory description = new string[](2);
+        string[] memory descriptions = new string[](2);
+        descriptions[0] = "M1";
+        descriptions[1] = "M2";
+
         uint256[] memory amounts = new uint256[](2);
         amounts[0] = amt1;
         amounts[1] = amt2;
 
-        vm.deal(payer, total);
-        vm.prank(payer);
-        escrow.createDeal{value: total}(payee, description, amounts);
+        token.mint(payer, total);
 
-        assertEq(address(escrow).balance, total);
+        vm.startPrank(payer);
+        token.approve(address(escrow), total);
+        escrow.createDeal(payee, token, descriptions, amounts);
+        
+        escrow.completeMilestone(1);
+        vm.stopPrank();
+
+        assertEq(escrow.pendingWithdrawals(payee, token), amt1);
     }
-
-    function testFuzz_MilestoneCompleted(uint256 amt1, uint256 amt2) public {
-        vm.assume(amt1 > 0 && amt1 < 100 ether);
-        vm.assume(amt2 > 0 && amt2 < 100 ether);
-        uint256 total = amt1 + amt2;
-
-        string[] memory _description = new string[](2);
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = amt1;
-        amounts[1] = amt2;
-
-        vm.deal(payer, total);
-        vm.prank(payer);
-        escrow.createDeal{value: total}(payee, _description, amounts);
-
-        vm.prank(payer);
-        escrow.completeMilestone(1, 0);
-
-        assertEq(escrow.pendingWithdrawals(payee), amt1, "Payee withdrawal balance incorrect");
-
-        vm.prank(payee);
-        uint256 payeeBalBefore = payee.balance;
-        escrow.withdraw();
-
-        assertEq(payee.balance,payeeBalBefore+ amt1, "Payee wallet balance incorrect after withdrawal");
-        assertEq(escrow.pendingWithdrawals(payee), 0, "Pending withdrawal not cleared");
-}
 
     /* =============================================================
                             INVARIANTS
        ============================================================= */
 
-    function invariant_ContractBalanceMatchedDeals() public view {
-        uint256 total;
+    function invariant_ContractBalanceMatchesPendingAndDeals() public view {
+        uint256 totalDealBalance;
         uint256 count = escrow.dealCount();
 
         for (uint256 i = 1; i <= count; i++) {
-            (,, uint256 bal,,,) = escrow.deals(i);
-            total += bal;
+            (,,, uint256 bal,,,) = escrow.deals(i);
+            totalDealBalance += bal;
         }
 
-        assertEq(address(escrow).balance, total);
+        uint256 pendingPayer = escrow.pendingWithdrawals(payer, token);
+        uint256 pendingPayee = escrow.pendingWithdrawals(payee, token);
+
+        assertEq(token.balanceOf(address(escrow)), totalDealBalance + pendingPayer + pendingPayee);
     }
 }

@@ -17,6 +17,7 @@ contract EscrowCore is Ownable, ReentrancyGuard {
 
     IIdentityRegister public identityRegister;
     uint256 public constant MAX_MILESTONES = 15;
+    uint256 public constant FEE = 3; // 0.3% fee in basis points
 
     // Custom Errors
     error LengthMismatch();
@@ -59,6 +60,7 @@ contract EscrowCore is Ownable, ReentrancyGuard {
     event DisputeRaised(address indexed raisor, uint256 indexed dealId, string reason);
     event DisputeResolved(uint256 indexed dealId, uint256 payerAmount, uint256 payeeAmount);
     event FundsWithdrawn(address indexed user, address indexed token, uint256 amount);
+    event FeeCollected(address indexed withdrawnFrom, address indexed token, uint256 amount);
 
     constructor(address _identityRegister) Ownable(msg.sender) {
         identityRegister = IIdentityRegister(_identityRegister);
@@ -77,9 +79,12 @@ contract EscrowCore is Ownable, ReentrancyGuard {
         if (amount == 0) revert NothingToWithdraw();
 
         pendingWithdrawals[msg.sender][_token] = 0;
-        _token.safeTransfer(msg.sender, amount);
+        uint256 fee = (amount * FEE) / 10000; // Calculate fee (0.3%)
+        _token.safeTransfer(msg.sender, amount - fee);
+        _token.safeTransfer(owner(), fee); // Transfer fee to owner
 
-        emit FundsWithdrawn(msg.sender, address(_token), amount);
+        emit FundsWithdrawn(msg.sender, address(_token), amount - fee);
+        emit FeeCollected(msg.sender, address(_token), fee);
     }
 
     /**
@@ -90,7 +95,7 @@ contract EscrowCore is Ownable, ReentrancyGuard {
         IERC20 _token,
         string[] memory _description,
         uint256[] memory _amount
-    ) external onlyVerified nonReentrant {
+    ) external payable onlyVerified nonReentrant {
         if (_description.length != _amount.length) revert LengthMismatch();
         if (_amount.length == 0 || _amount.length > MAX_MILESTONES) revert InvalidMilestoneCount();
         if (address(_token) == address(0)) revert InvalidTokenAddress();

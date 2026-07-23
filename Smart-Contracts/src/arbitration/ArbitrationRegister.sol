@@ -147,9 +147,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         
         // Ensure the sender is the registered wallet for this identity
         if (!arb.active || arb.wallet != msg.sender) revert Unauthorized();
-
-        arb.stake += _stake;
         token.safeTransferFrom(msg.sender, address(this), _stake);
+        arb.stake += _stake;
 
         emit StakeIncreased(idHash, msg.sender, _stake, arb.stake);
     }

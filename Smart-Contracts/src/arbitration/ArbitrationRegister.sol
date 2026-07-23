@@ -12,10 +12,20 @@ contract ArbitrationCourt is Ownable{
     IIdentityRegister public identityRegister;
     IERC20 public token;
     uint256 public MINIMUM_STAKE = 500 * 1e6 ;// 500$ worth of usdt
+    address owner;
+
+    error UserNotVerified();
+    error Unauthorized();
+
 
     constructor(address _identityRegister, IERC20 _token) Ownable(msg.sender) {
         identityRegister = IIdentityRegister(_identityRegister);
         token = _token;
+        owner = msg.sender;
+    }
+     modifier onlyVerified() {
+        if (!identityRegister.isVerified(msg.sender)) revert UserNotVerified();
+        _;
     }
 
     struct Arbitrator{
@@ -29,7 +39,8 @@ contract ArbitrationCourt is Ownable{
 
     error NotEnoughStake();
 
-    function addArbitrator(uint256 _stake ) external {
+    function addArbitrator(uint256 _stake ) onlyVerified  external {
+        if(msg.sender == arbitrationRegisterGuardian || msg.sender == owner) revert Unauthorized();
         if(_stake < MINIMUM_STAKE ) revert NotEnoughStake();
         Arbitrator storage arb = arbitrator[msg.sender];
         arb.stake = _stake;
@@ -37,6 +48,8 @@ contract ArbitrationCourt is Ownable{
         arb.active = true;
         token.safeTransferFrom( msg.sender, address(this), _stake);
     }
+
+    
 
 
     

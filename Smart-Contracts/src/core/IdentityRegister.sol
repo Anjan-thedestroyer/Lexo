@@ -355,6 +355,10 @@ contract IdentityRegister is Ownable, EIP712 {
         return (id.verified, restricted[identityHash], id.rootWallet, id.wallets);
     }
 
+    function getIdentityHashByWallet(address wallet) external view returns (bytes32 identityHash){
+        return walletToIdentity[wallet];
+    }
+
     /**
      * @notice Returns every wallet currently linked to an identity hash.
      * @param identityHash The identity hash to look up.

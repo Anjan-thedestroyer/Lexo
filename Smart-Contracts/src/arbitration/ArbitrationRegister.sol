@@ -110,7 +110,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
 
     function changeWallet(address _toWallet) external onlyVerified(msg.sender) {
         if (_toWallet == address(0) || _toWallet == msg.sender) revert InvalidAmount();
-        
+        if (arbitratorToIdentity[_toWallet] != bytes32(0))revert IdentityAlreadyRegistered();
+
         // 1. Get identity hash of current wallet and incoming wallet
         bytes32 idHash = identityRegister.getIdentityHashByWallet(msg.sender);
         bytes32 toIdHash = identityRegister.getIdentityHashByWallet(_toWallet);
@@ -120,6 +121,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
 
         Arbitrator storage arb = arbitrators[idHash];
         if (arb.wallet != msg.sender || !arb.active) revert Unauthorized();
+        if (arb.activeCases > 0) revert ActiveCasesPending();
 
         // 3. Update reverse mappings
         delete arbitratorToIdentity[msg.sender];
@@ -194,6 +196,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
         Arbitrator storage arb = arbitrators[idHash];
         if (_amount > arb.stake) revert InvalidAmount();
+        if (arb.wallet == address(0)) revert NotRegistered();
 
         arb.stake -= _amount;
         token.safeTransfer(_recipient, _amount);

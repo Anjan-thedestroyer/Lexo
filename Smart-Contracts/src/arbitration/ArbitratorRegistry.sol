@@ -7,6 +7,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
 
+/// @title ArbitratorRegistry
+/// @notice Manages arbitrator staking, unique identity mapping, eligibility, and dynamic O(1) random selection.
 contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -17,15 +19,6 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     uint256 public constant MINIMUM_STAKE = 500 * 1e6; // 500 USDT
     uint256 public constant UNSTAKE_COOL_DOWN = 7 days;
     uint256 public constant MAX_ACTIVE_CASES = 3;
-
-    // --- Weighted random selection tuning ---
-    // Odds per eligible arbitrator = BASE_WEIGHT + min(reputation, MAX_REPUTATION_WEIGHT)
-    //                                + sqrt(stake / 1e6) * STAKE_WEIGHT_FACTOR
-    // BASE_WEIGHT dominates a typical arbitrator's total weight on purpose: everyone eligible
-    // keeps a real shot, reputation/stake only nudge the odds rather than deciding them outright.
-    uint256 public constant BASE_WEIGHT = 100;
-    uint256 public constant MAX_REPUTATION_WEIGHT = 500;
-    uint256 public constant STAKE_WEIGHT_FACTOR = 2;
 
     struct Arbitrator {
         address wallet;             
@@ -43,10 +36,17 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     // wallet => identityHash lookup for fast access
     mapping(address => bytes32) public arbitratorToIdentity;
 
+    // --- Dynamic Active Pool (O(1) Selection Engine) ---
+    // Contains strictly eligible arbitrator wallets ready for immediate selection
+    address[] public eligiblePool;
+    // wallet => (index in eligiblePool + 1). 0 indicates wallet is not in the pool.
+    mapping(address => uint256) private eligibleIndex;
+
+    // Master list of all registered wallets (historical & active)
     address[] public arbitratorList;
     mapping(address => uint256) private arbitratorIndex;
 
-    // Increments on every random draw so two selections in the same block never share a seed
+    // Nonce incremented on every random selection to guarantee fresh seeds within the same block
     uint256 public selectionNonce;
 
     // --- Custom Errors ---
@@ -73,7 +73,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     event CaseFinished(bytes32 indexed identityHash, address indexed wallet, uint256 newActiveCases);
     event StatusChanged(bytes32 indexed identityHash, bool suspended, bool active);
     event WalletChanged(bytes32 indexed identityHash, address indexed oldWallet, address indexed newWallet);
-    event ArbitratorSelected(uint256 indexed caseId, address indexed wallet, uint256 randomValue, uint256 totalWeight, uint256 poolSize);
+    event ArbitratorSelected(uint256 indexed caseId, address indexed wallet, uint256 randomIndex, uint256 poolSize);
 
     modifier onlyVerified(address _account) {
         if (!identityRegister.isVerified(_account)) revert UserNotVerified();
@@ -100,12 +100,9 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         if (msg.sender == owner()) revert Unauthorized();
         if (_stake < MINIMUM_STAKE) revert NotEnoughStake();
 
-        // Fetch identity hash associated with caller's wallet
         bytes32 idHash = identityRegister.getIdentityHashByWallet(msg.sender);
-
         Arbitrator storage arb = arbitrators[idHash];
         
-        // Block registration if identity is already registered under ANY wallet
         if (arb.active || arb.stake > 0) revert IdentityAlreadyRegistered();
 
         arb.wallet = msg.sender;
@@ -118,41 +115,47 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         arbitratorList.push(msg.sender);
 
         token.safeTransferFrom(msg.sender, address(this), _stake);
+
+        _syncEligibility(msg.sender);
         emit ArbitratorAdded(idHash, msg.sender, _stake);
     }
 
+    // --- 2. Change Registered Wallet ---
+
     function changeWallet(address _toWallet) external onlyVerified(msg.sender) {
         if (_toWallet == address(0) || _toWallet == msg.sender) revert InvalidAmount();
-        if (arbitratorToIdentity[_toWallet] != bytes32(0))revert IdentityAlreadyRegistered();
+        if (arbitratorToIdentity[_toWallet] != bytes32(0)) revert IdentityAlreadyRegistered();
 
-        // 1. Get identity hash of current wallet and incoming wallet
         bytes32 idHash = identityRegister.getIdentityHashByWallet(msg.sender);
         bytes32 toIdHash = identityRegister.getIdentityHashByWallet(_toWallet);
 
-        // 2. Ensure both wallets belong to the exact same identity
         if (idHash == bytes32(0) || idHash != toIdHash) revert Unauthorized();
 
         Arbitrator storage arb = arbitrators[idHash];
         if (arb.wallet != msg.sender || !arb.active) revert Unauthorized();
         if (arb.activeCases > 0) revert ActiveCasesPending();
 
-        // 3. Update reverse mappings
+        // 1. Remove old wallet from active eligible pool
+        _removeFromEligiblePool(msg.sender);
+
+        // 2. Update reverse lookup mappings
         delete arbitratorToIdentity[msg.sender];
         arbitratorToIdentity[_toWallet] = idHash;
 
-        // 4. Update enumerable array indexes
+        // 3. Update master list index
         uint256 index = arbitratorIndex[msg.sender];
         arbitratorList[index] = _toWallet;
         arbitratorIndex[_toWallet] = index;
         delete arbitratorIndex[msg.sender];
 
-        // 5. Update main state record
+        // 4. Update main record and add new wallet to pool if eligible
         arb.wallet = _toWallet;
+        _syncEligibility(_toWallet);
 
         emit WalletChanged(idHash, msg.sender, _toWallet);
     }
 
-    // --- 2. Increase Stake ---
+    // --- 3. Increase Stake ---
 
     function increaseStake(uint256 _stake) external onlyVerified(msg.sender) {
         if (_stake == 0) revert InvalidAmount();
@@ -160,15 +163,16 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         bytes32 idHash = arbitratorToIdentity[msg.sender];
         Arbitrator storage arb = arbitrators[idHash];
         
-        // Ensure the sender is the registered wallet for this identity
         if (!arb.active || arb.wallet != msg.sender) revert Unauthorized();
+
         token.safeTransferFrom(msg.sender, address(this), _stake);
         arb.stake += _stake;
 
+        _syncEligibility(msg.sender);
         emit StakeIncreased(idHash, msg.sender, _stake, arb.stake);
     }
 
-    // --- 3 & 4. Unstake Flow ---
+    // --- 4 & 5. Unstake Flow ---
 
     function requestUnstake() external {
         bytes32 idHash = arbitratorToIdentity[msg.sender];
@@ -181,6 +185,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         arb.unstakeRequestedAt = block.timestamp;
         arb.active = false;
 
+        _removeFromEligiblePool(msg.sender);
         emit UnstakeRequested(idHash, msg.sender, block.timestamp);
     }
 
@@ -197,34 +202,40 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         arb.stake = 0;
         arb.unstakeRequestedAt = 0;
 
+        _removeFromEligiblePool(msg.sender);
         _removeArbitratorFromList(msg.sender, idHash);
 
         token.safeTransfer(msg.sender, payout);
         emit UnstakeCompleted(idHash, msg.sender, payout);
     }
 
-    // --- 5 & 6. Slashing & Reputation (Called by Court) ---
+    // --- 6. Slashing & Reactivation ---
 
     function slash(address _arbitratorWallet, uint256 _amount, address _recipient) external onlyCourt {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
         Arbitrator storage arb = arbitrators[idHash];
-        if (_amount > arb.stake) revert InvalidAmount();
+        
         if (arb.wallet == address(0)) revert NotRegistered();
+        if (_amount > arb.stake) revert InvalidAmount();
 
         arb.stake -= _amount;
         token.safeTransfer(_recipient, _amount);
-        if(arb.stake < MINIMUM_STAKE){
-            arb.suspended = true; // Auto-suspend until top-up
+
+        if (arb.stake < MINIMUM_STAKE) {
+            arb.suspended = true;
             emit StatusChanged(idHash, arb.suspended, arb.active);        
         }
-        if(arb.reputation > 0){
+
+        if (arb.reputation > 0) {
             uint256 penalty = _amount / 10; // Deduct 10% of slashed amount from reputation
             arb.reputation = arb.reputation > penalty ? arb.reputation - penalty : 0;
             emit ReputationUpdated(idHash, arb.reputation);
         }
 
+        _syncEligibility(_arbitratorWallet);
         emit Slashed(idHash, _arbitratorWallet, _amount, _recipient);
     }
+
     function reactivate() external {
         bytes32 idHash = arbitratorToIdentity[msg.sender];
         Arbitrator storage arb = arbitrators[idHash];
@@ -233,6 +244,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         if (arb.stake < MINIMUM_STAKE) revert NotEnoughStake();
         
         arb.suspended = false;
+        _syncEligibility(msg.sender);
         emit StatusChanged(idHash, false, arb.active);
     }
 
@@ -249,7 +261,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         emit ReputationUpdated(idHash, arb.reputation);
     }
 
-    // --- 7 & 8. Case Counter Management ---
+    // --- 7. Case Management (Manual & Finished) ---
 
     function assignCase(address _arbitratorWallet) external onlyCourt {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
@@ -258,6 +270,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         if (!isEligible(_arbitratorWallet)) revert Unauthorized();
         arb.activeCases += 1;
 
+        _syncEligibility(_arbitratorWallet);
         emit CaseAssigned(idHash, _arbitratorWallet, arb.activeCases);
     }
 
@@ -268,10 +281,33 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         if (arb.activeCases > 0) {
             arb.activeCases -= 1;
         }
+
+        _syncEligibility(_arbitratorWallet);
         emit CaseFinished(idHash, _arbitratorWallet, arb.activeCases);
     }
 
-    // --- 9. Eligibility Check ---
+    // --- 8. O(1) Instant Random Selection ---
+
+    /// @notice Selects an eligible arbitrator in O(1) constant gas regardless of total registered user count.
+    function assignRandomCase(uint256 _caseId) external onlyCourt returns (address selected) {
+        uint256 poolSize = eligiblePool.length;
+        if (poolSize == 0) revert NotEnoughEligibleArbitrators();
+
+        uint256 randomIndex = _pseudoRandom(_caseId) % poolSize;
+        selected = eligiblePool[randomIndex];
+
+        bytes32 idHash = arbitratorToIdentity[selected];
+        Arbitrator storage arb = arbitrators[idHash];
+        arb.activeCases += 1;
+
+        // If capacity reached, automatically remove from selection pool
+        _syncEligibility(selected);
+
+        emit CaseAssigned(idHash, selected, arb.activeCases);
+        emit ArbitratorSelected(_caseId, selected, randomIndex, poolSize);
+    }
+
+    // --- Views ---
 
     function isEligible(address _arbitratorWallet) public view returns (bool) {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
@@ -287,61 +323,43 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         );
     }
 
-    // --- 10. Weighted Random Case Assignment ---
-
-    /// @notice Assigns a case to an arbitrator via weighted random selection.
-    /// @dev Every eligible arbitrator gets a ticket count of BASE_WEIGHT + min(reputation,
-    ///      MAX_REPUTATION_WEIGHT) + sqrt(stake / 1e6) * STAKE_WEIGHT_FACTOR, then one ticket
-    ///      is drawn out of the pooled total. BASE_WEIGHT is sized to dominate the total for a
-    ///      typical arbitrator, so reputation/stake shift the odds without deciding them.
-    /// @param _caseId Opaque id from the calling dispute module. Used only as an entropy salt
-    ///      and event topic — this contract does not validate the case itself.
-    /// @return selected The arbitrator wallet chosen for this case.
-    function assignRandomCase(uint256 _caseId) external onlyCourt returns (address selected) {
-        (address[] memory pool, uint256[] memory weights, uint256 totalWeight, uint256 count) = _buildEligiblePool();
-        if (count == 0) revert NotEnoughEligibleArbitrators();
-
-        uint256 rand = _pseudoRandom(_caseId) % totalWeight;
-        uint256 cumulative;
-        for (uint256 i = 0; i < count; i++) {
-            cumulative += weights[i];
-            if (rand < cumulative) {
-                selected = pool[i];
-                break;
-            }
-        }
-
-        // Defensive re-check: cheap, and guards against any future refactor that inserts an
-        // external call between pool-build and this state write.
-        if (!isEligible(selected)) revert Unauthorized();
-
-        bytes32 idHash = arbitratorToIdentity[selected];
-        Arbitrator storage arb = arbitrators[idHash];
-        arb.activeCases += 1;
-
-        emit CaseAssigned(idHash, selected, arb.activeCases);
-        emit ArbitratorSelected(_caseId, selected, rand, totalWeight, count);
+    function getEligiblePoolSize() external view returns (uint256) {
+        return eligiblePool.length;
     }
 
-    /// @notice Read-only view of the current eligible pool and each member's selection weight.
-    /// @dev For UI "your odds" displays only. The actual draw only resolves inside
-    ///      assignRandomCase() at execution time, so this can drift from block to block.
-    function previewEligiblePool()
-        external
-        view
-        returns (address[] memory pool, uint256[] memory weights, uint256 totalWeight)
-    {
-        (address[] memory p, uint256[] memory w, uint256 tw, uint256 count) = _buildEligiblePool();
-        pool = new address[](count);
-        weights = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            pool[i] = p[i];
-            weights[i] = w[i];
+    // --- Internal Helpers: Dynamic Active Pool (O(1) Swap-and-Pop) ---
+
+    function _syncEligibility(address _wallet) internal {
+        if (isEligible(_wallet)) {
+            _addToEligiblePool(_wallet);
+        } else {
+            _removeFromEligiblePool(_wallet);
         }
-        totalWeight = tw;
     }
 
-    // --- Internal Helpers ---
+    function _addToEligiblePool(address _wallet) internal {
+        if (eligibleIndex[_wallet] == 0) {
+            eligiblePool.push(_wallet);
+            eligibleIndex[_wallet] = eligiblePool.length; // 1-based index storage
+        }
+    }
+
+    function _removeFromEligiblePool(address _wallet) internal {
+        uint256 indexPlusOne = eligibleIndex[_wallet];
+        if (indexPlusOne == 0) return; // Not in pool
+
+        uint256 indexToSwap = indexPlusOne - 1;
+        uint256 lastIndex = eligiblePool.length - 1;
+
+        if (indexToSwap != lastIndex) {
+            address lastWallet = eligiblePool[lastIndex];
+            eligiblePool[indexToSwap] = lastWallet;
+            eligibleIndex[lastWallet] = indexToSwap + 1;
+        }
+
+        eligiblePool.pop();
+        delete eligibleIndex[_wallet];
+    }
 
     function _removeArbitratorFromList(address _wallet, bytes32 _idHash) internal {
         uint256 index = arbitratorIndex[_wallet];
@@ -359,54 +377,6 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         delete arbitrators[_idHash];
     }
 
-    /// @dev Walks arbitratorList once and keeps only members that pass isEligible(), pairing
-    ///      each with its selection weight. O(n) in the size of arbitratorList — fine at
-    ///      hackathon/early-mainnet scale, but worth capping or moving off-chain if the
-    ///      registry grows into the thousands.
-    function _buildEligiblePool()
-        internal
-        view
-        returns (address[] memory pool, uint256[] memory weights, uint256 totalWeight, uint256 count)
-    {
-        uint256 n = arbitratorList.length;
-        pool = new address[](n);
-        weights = new uint256[](n);
-
-        for (uint256 i = 0; i < n; i++) {
-            address wallet = arbitratorList[i];
-            if (isEligible(wallet)) {
-                bytes32 idHash = arbitratorToIdentity[wallet];
-                uint256 w = _weightOf(arbitrators[idHash]);
-                pool[count] = wallet;
-                weights[count] = w;
-                totalWeight += w;
-                count++;
-            }
-        }
-    }
-
-    function _weightOf(Arbitrator storage arb) internal view returns (uint256) {
-        uint256 repComponent = arb.reputation > MAX_REPUTATION_WEIGHT ? MAX_REPUTATION_WEIGHT : arb.reputation;
-        uint256 stakeComponent = _sqrt(arb.stake / 1e6) * STAKE_WEIGHT_FACTOR;
-        return BASE_WEIGHT + repComponent + stakeComponent;
-    }
-
-    /// @dev Integer square root, Babylonian method — same approach as Uniswap V2's Math library.
-    ///      Used to dampen stake's influence so large stakers get better odds, not guaranteed wins.
-    function _sqrt(uint256 x) internal pure returns (uint256 y) {
-        if (x == 0) return 0;
-        uint256 z = (x + 1) / 2;
-        y = x;
-        while (z < y) {
-            y = z;
-            z = (x / z + z) / 2;
-        }
-    }
-
-    /// @dev Pseudo-randomness only. block.prevrandao / blockhash can be biased within a narrow
-    ///      margin by the block proposer that last chooses whether to reveal a block — acceptable
-    ///      for hackathon/testnet stakes, not for securing large real value.
-    ///      TODO: swap for Chainlink VRF (or equivalent verifiable RNG) before mainnet.
     function _pseudoRandom(uint256 _salt) internal returns (uint256) {
         selectionNonce++;
         return uint256(
@@ -421,5 +391,4 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
             )
         );
     }
-
 }

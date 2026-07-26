@@ -204,6 +204,11 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
             arb.suspended = true; // Auto-suspend until top-up
             emit StatusChanged(idHash, arb.suspended, arb.active);        
         }
+        if(arb.reputation > 0){
+            uint256 penalty = _amount / 10; // Deduct 10% of slashed amount from reputation
+            arb.reputation = arb.reputation > penalty ? arb.reputation - penalty : 0;
+            emit ReputationUpdated(idHash, arb.reputation);
+        }
 
         emit Slashed(idHash, _arbitratorWallet, _amount, _recipient);
     }
@@ -286,4 +291,5 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         delete arbitratorToIdentity[_wallet];
         delete arbitrators[_idHash];
     }
+
 }

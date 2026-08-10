@@ -61,7 +61,7 @@ contract EscrowCore is Ownable, ReentrancyGuard {
         address raisor;
         string reason;
     }
-~
+
     // State Variables
     uint256 public dealCount;
     mapping(uint256 => Deal) public deals;
@@ -81,14 +81,16 @@ contract EscrowCore is Ownable, ReentrancyGuard {
     constructor(
         address _token,
         address _identityRegister,
-        address _arbiter
+        address _arbiter,
+        address _coreAgreement
     ) Ownable(msg.sender) {
-        if (_token == address(0) || _identityRegister == address(0) || _arbiter == address(0)) {
+        if (_token == address(0) || _identityRegister == address(0) || _arbiter == address(0) || _coreAgreement == address(0)) {
             revert InvalidAddress();
         }
         token = IERC20(_token);
         identityRegister = IIdentityRegister(_identityRegister);
         arbiter = IArbitrationCourt(_arbiter);
+        
     }
 
     modifier onlyVerified() {

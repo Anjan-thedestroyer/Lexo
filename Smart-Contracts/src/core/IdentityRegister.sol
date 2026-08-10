@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ICoreAgreement} from "../interfaces/ICoreAgreement.sol";
 
 /**
  * @title IdentityRegister
@@ -35,6 +36,7 @@ contract IdentityRegister is Ownable, EIP712 {
     /// @notice Address whose EIP-712 signature is trusted to attest wallet-identity links.
     /// @dev Set via `addVerifier`. Should be a dedicated backend signing key.
     address public verifier;
+    ICoreAgreement public coreAgreement;
 
     /// @notice Maximum number of wallets allowed under a single identity hash.
     uint256 public constant MAX_WALLET = 5;
@@ -142,6 +144,7 @@ contract IdentityRegister is Ownable, EIP712 {
     ///      it's accepted as input — guards against sentinel-value state collisions
     ///      (see contract-level @dev note).
     error ZeroIdentityHash();
+    error NotVerified();
 
     /// @dev Restricts a function to only be callable by the current `verifier` address.
     modifier onlyVerifier() {
@@ -151,7 +154,15 @@ contract IdentityRegister is Ownable, EIP712 {
 
     /// @notice Deploys the registry. Deployer becomes the `Ownable` owner; the
     ///         EIP-712 domain is fixed to ("Lexo IdentityRegister", "1").
-    constructor() Ownable(msg.sender) EIP712("Lexo IdentityRegister", "1") {}
+    constructor(ICoreAgreement _coreAgreement) Ownable(msg.sender) EIP712("Lexo IdentityRegister", "1") {
+        coreAgreement = _coreAgreement;
+    }
+
+    modifier onlyVerified() {
+        if (!coreAgreement.hasSignedCurrentAgreement(msg.sender)) revert NotVerified();
+        _;
+    }
+
 
     /**
      * @notice Updates the trusted attestation-signing address.

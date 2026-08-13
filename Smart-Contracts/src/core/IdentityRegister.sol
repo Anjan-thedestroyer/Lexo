@@ -159,7 +159,7 @@ contract IdentityRegister is Ownable, EIP712 {
     }
 
     modifier onlyVerified() {
-        if (!coreAgreement.hasSignedCurrentAgreement(msg.sender)) revert NotVerified();
+        if (!coreAgreement.hasSignedAgreement(msg.sender)) revert NotVerified();
         _;
     }
 

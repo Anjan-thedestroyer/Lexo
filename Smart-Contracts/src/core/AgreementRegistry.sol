@@ -59,6 +59,7 @@ contract AgreementRegistry is EIP712 {
     event BothDocumentsSigned(uint256 indexed dealId);
 
     error NotVerified();
+    error NotAuthorized();
     error DocumentAlreadyExists();
     error DocumentDoesNotExist();
     error AlreadySigned();
@@ -80,6 +81,10 @@ contract AgreementRegistry is EIP712 {
         if (msg.sender != dealPayer[dealId]) revert NotPayer();
         _;
     }
+    modifier onlyEscrowCore() {
+        if (msg.sender != escrowCore) revert NotAuthorized();
+        _;
+    }
 
     constructor(address _identityRegister)
         EIP712("Lexo AgreementRegistry", "1")
@@ -97,7 +102,7 @@ contract AgreementRegistry is EIP712 {
      */
     function submitPayerDocument(uint256 dealId, bytes32 documentHash)
         external
-        onlyVerified
+        onlyEscrowCore
     {
         if (agreements[dealId][DOC_A].exists) revert DocumentAlreadyExists();
         if (dealPayer[dealId] != address(0)) revert PayerAlreadySet();

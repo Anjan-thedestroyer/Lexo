@@ -216,7 +216,6 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         Deal storage deal = deals[_dealId];
         if (deal.payer != msg.sender) revert NotAuthorized();
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
-
         // Enforce full signature execution across Doc A and Doc B
         if (!agreementRegistry.haveBothSigned(_dealId)) revert AgreementsNotSigned();
 

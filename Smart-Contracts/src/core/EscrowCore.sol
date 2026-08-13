@@ -81,6 +81,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     mapping(address => uint256) public pendingWithdrawals;
     mapping(uint256 => Dispute) public disputeLogs;
     mapping(address => uint256) public nonces;
+    mapping(uint256 => address[]) public invitedPayees;
 
     // Events
     event DealCreated(uint256 indexed dealId, address indexed payer, uint256 totalBalance);
@@ -92,7 +93,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     event FeeCollected(address indexed withdrawnFrom, uint256 amount);
     event PayeeJoined(uint256 indexed dealId, address indexed payee);
     event DealCancelled(uint256 indexed dealId, address indexed cancelledBy);
-
+    
     constructor(
         address _token,
         address _identityRegister,
@@ -140,7 +141,10 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
      */
     function createDeal(
         string[] memory _description,
-        uint256[] memory _amount
+        uint256[] memory _amount,
+        address[] memory _invitedPayees,
+        bytes32  _documentHash,
+        bytes calldata _payerSignature
     ) external onlyVerified nonReentrant {
         if (_description.length != _amount.length) revert LengthMismatch();
         if (_amount.length == 0 || _amount.length > MAX_MILESTONES) revert InvalidMilestoneCount();
@@ -167,10 +171,16 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
                 isCompleted: false
             });
         }
+        if(_invitedPayees.length > 0) {
+            invitedPayees[dealCount] = _invitedPayees;
+        }
 
         token.safeTransferFrom(msg.sender, address(this), total);
 
+        agreementRegistry.submitPayerDocument(dealCount, _documentHash);
+
         emit DealCreated(dealCount, msg.sender, total);
+
     }
 
     /**
@@ -182,6 +192,34 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         if (deal.payer == msg.sender) revert InvalidAddress();
         if (deal.payee != address(0)) revert PayeeAlreadyAssigned();
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
+
+        deal.payee = msg.sender;
+
+        emit PayeeJoined(_dealId, msg.sender);
+    }
+
+    function getInvitedPayees(uint256 _dealId) external view returns (address[] memory) {
+        return invitedPayees[_dealId];
+    }
+
+    function acceptInvitation(uint256 _dealId) external onlyVerified{
+        
+        Deal storage deal = deals[_dealId];
+
+        if (deal.payer == msg.sender) revert InvalidAddress();
+        if (deal.payee != address(0)) revert PayeeAlreadyAssigned();
+        if (deal.status != Status.InProgress) revert InvalidDealStatus();
+
+        // Check if the sender is in the invited payees list
+        address[] storage invited = invitedPayees[_dealId];
+        bool isInvited = false;
+        for (uint256 i = 0; i < invited.length; i++) {
+            if (invited[i] == msg.sender) {
+                isInvited = true;
+                break;
+            }
+        }
+        if (!isInvited) revert NotAuthorized();
 
         deal.payee = msg.sender;
 

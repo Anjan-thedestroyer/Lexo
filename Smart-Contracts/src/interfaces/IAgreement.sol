@@ -35,12 +35,12 @@ interface IAgreementRegistry {
 
     function submitPayerDocument(
         uint256 dealId,
-        string calldata documentText
+        bytes32  documentHash
     ) external;
 
     function submitPayeeDocument(
         uint256 dealId,
-        string calldata documentText
+        bytes32  documentHash
     ) external;
 
 

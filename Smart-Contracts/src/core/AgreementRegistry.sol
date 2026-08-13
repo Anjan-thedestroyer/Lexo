@@ -122,16 +122,15 @@ contract AgreementRegistry is EIP712 {
      *      separately call `signDocument` to sign it (and also sign Document B
      *      when the payee submits it).
      * @param dealId The escrow deal this agreement belongs to.
-     * @param documentText The raw plaintext of the payer's agreement terms.
-     */
-    function submitPayerDocument(uint256 dealId, string calldata documentText)
+     * @param documentHash The hash of the payer's agreement terms.
+     **/
+    function submitPayerDocument(uint256 dealId, bytes32  documentHash)
         external
-        onlyVerified
     {
         if (agreements[dealId][DOC_A].exists) revert DocumentAlreadyExists();
         if (dealPayer[dealId] != address(0)) revert PayerAlreadySet();
 
-        bytes32 contentHash = keccak256(bytes(documentText));
+        bytes32 contentHash = documentHash;
         agreements[dealId][DOC_A] = AgreementDoc({
             contentHash: contentHash,
             payerSigned: false,
@@ -149,9 +148,9 @@ contract AgreementRegistry is EIP712 {
      *      (the payer must submit their document first) so both parties are known
      *      before the payee sets their terms.
      * @param dealId The escrow deal this agreement belongs to.
-     * @param documentText The raw plaintext of the payee's agreement terms.
+     * @param documentHash The hash of the payee's agreement terms.
      */
-    function submitPayeeDocument(uint256 dealId, string calldata documentText)
+    function submitPayeeDocument(uint256 dealId, bytes32  documentHash)
         external
         onlyVerified
     {
@@ -159,7 +158,7 @@ contract AgreementRegistry is EIP712 {
         if (agreements[dealId][DOC_B].exists) revert DocumentAlreadyExists();
         if (dealPayee[dealId] != address(0)) revert PayeeAlreadySet();
 
-        bytes32 contentHash = keccak256(bytes(documentText));
+        bytes32 contentHash = documentHash;
         agreements[dealId][DOC_B] = AgreementDoc({
             contentHash: contentHash,
             payerSigned: false,
@@ -185,7 +184,7 @@ contract AgreementRegistry is EIP712 {
         uint256 dealId,
         uint8 docIndex,
         bytes calldata signature
-    ) external onlyVerified {
+    ) external {
         AgreementDoc storage doc = agreements[dealId][docIndex];
         if (!doc.exists) revert DocumentDoesNotExist();
 

@@ -14,7 +14,7 @@ import {IAgreementRegistry} from "../interfaces/IAgreement.sol";
 /**
  * @title Lexo EscrowCore
  * @author Abinash Paudel
- * @notice Milestone-based escrow engine with per-milestone instant releases and EIP-712 cooperative cancellations.
+ * @notice Milestone-based escrow engine integrated directly with AgreementRegistry.
  */
 contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     using SafeERC20 for IERC20;
@@ -47,9 +47,11 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     error UserNotVerified();
     error ArbiterRequired();
     error PayeeAlreadyAssigned();
+    error PayeeNotSelected();
     error InvalidDealId();
     error InvalidSignature();
     error SignatureExpired();
+    error AgreementsNotSigned();
 
     enum Status { InProgress, Disputed, Completed, Resolved, Cancelled }
 
@@ -91,27 +93,32 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     event DisputeResolved(uint256 indexed dealId, uint256 payerAmount, uint256 payeeAmount);
     event FundsWithdrawn(address indexed user, uint256 amount);
     event FeeCollected(address indexed withdrawnFrom, uint256 amount);
-    event PayeeJoined(uint256 indexed dealId, address indexed payee);
+    event PayeeSynced(uint256 indexed dealId, address indexed payee);
     event DealCancelled(uint256 indexed dealId, address indexed cancelledBy);
-    
+
+    modifier onlyVerified() {
+        if (!identityRegister.isVerified(msg.sender)) revert UserNotVerified();
+        _;
+    }
+
+    modifier onlyAgreementRegistry() {
+        if (msg.sender != address(agreementRegistry)) revert NotAuthorized();
+        _;
+    }
+
     constructor(
         address _token,
         address _identityRegister,
         address _arbiter,
-        address _coreAgreement
+        address _agreementRegistry
     ) Ownable(msg.sender) EIP712("Lexo EscrowCore", "1") {
-        if (_token == address(0) || _identityRegister == address(0) || _arbiter == address(0) || _coreAgreement == address(0)) {
+        if (_token == address(0) || _identityRegister == address(0) || _arbiter == address(0) || _agreementRegistry == address(0)) {
             revert InvalidAddress();
         }
         token = IERC20(_token);
         identityRegister = IIdentityRegister(_identityRegister);
         arbiter = IArbitrationCourt(_arbiter);
-        agreementRegistry = IAgreementRegistry(_coreAgreement);
-    }
-
-    modifier onlyVerified() {
-        if (!identityRegister.isVerified(msg.sender)) revert UserNotVerified();
-        _;
+        agreementRegistry = IAgreementRegistry(_agreementRegistry);
     }
 
     /**
@@ -137,14 +144,13 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     }
 
     /**
-     * @notice Creates an escrow deal backed by ERC20 token.
+     * @notice Creates an escrow deal backed by ERC20 token, submits Document A, and signs it.
      */
     function createDeal(
         string[] memory _description,
         uint256[] memory _amount,
         address[] memory _invitedPayees,
-        bytes32  _documentHash,
-        bytes calldata _payerSignature
+        bytes32 _documentHash
     ) external onlyVerified nonReentrant {
         if (_description.length != _amount.length) revert LengthMismatch();
         if (_amount.length == 0 || _amount.length > MAX_MILESTONES) revert InvalidMilestoneCount();
@@ -171,68 +177,48 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
                 isCompleted: false
             });
         }
-        if(_invitedPayees.length > 0) {
+        
+        if (_invitedPayees.length > 0) {
             invitedPayees[dealCount] = _invitedPayees;
         }
 
+        // Lock funds into EscrowCore
         token.safeTransferFrom(msg.sender, address(this), total);
 
+        // Submit and automatically sign Payer's Document A in AgreementRegistry
         agreementRegistry.submitPayerDocument(dealCount, _documentHash);
-
         emit DealCreated(dealCount, msg.sender, total);
-
     }
 
     /**
-     * @notice Allows a verified payee to join an open deal.
+     * @notice Callback called by AgreementRegistry when Payer accepts a candidate Payee's Document B.
      */
-    function joinDeal(uint256 _dealId) external onlyVerified {
+    function syncPayeeFromRegistry(uint256 _dealId) external onlyAgreementRegistry {
         Deal storage deal = deals[_dealId];
-
-        if (deal.payer == msg.sender) revert InvalidAddress();
-        if (deal.payee != address(0)) revert PayeeAlreadyAssigned();
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
+        if (deal.payee != address(0)) revert PayeeAlreadyAssigned();
 
-        deal.payee = msg.sender;
+        address selectedPayee = agreementRegistry.dealPayee(_dealId);
+        if (selectedPayee == address(0)) revert PayeeNotSelected();
 
-        emit PayeeJoined(_dealId, msg.sender);
+        deal.payee = selectedPayee;
+        emit PayeeSynced(_dealId, selectedPayee);
     }
 
     function getInvitedPayees(uint256 _dealId) external view returns (address[] memory) {
         return invitedPayees[_dealId];
     }
 
-    function acceptInvitation(uint256 _dealId) external onlyVerified{
-        
-        Deal storage deal = deals[_dealId];
-
-        if (deal.payer == msg.sender) revert InvalidAddress();
-        if (deal.payee != address(0)) revert PayeeAlreadyAssigned();
-        if (deal.status != Status.InProgress) revert InvalidDealStatus();
-
-        // Check if the sender is in the invited payees list
-        address[] storage invited = invitedPayees[_dealId];
-        bool isInvited = false;
-        for (uint256 i = 0; i < invited.length; i++) {
-            if (invited[i] == msg.sender) {
-                isInvited = true;
-                break;
-            }
-        }
-        if (!isInvited) revert NotAuthorized();
-
-        deal.payee = msg.sender;
-
-        emit PayeeJoined(_dealId, msg.sender);
-    }
-
     /**
-     * @notice Payer approves current milestone -> immediately releases milestone funds to payee.
+     * @notice Payer approves current milestone -> releases funds once both parties have signed both documents.
      */
     function approveAndReleaseMilestone(uint256 _dealId) external onlyVerified nonReentrant {
         Deal storage deal = deals[_dealId];
         if (deal.payer != msg.sender) revert NotAuthorized();
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
+
+        // Enforce full signature execution across Doc A and Doc B
+        if (!agreementRegistry.haveBothSigned(_dealId)) revert AgreementsNotSigned();
 
         uint256 currentId = deal.currentMilestone;
         if (currentId >= deal.totalMilestones) revert AllMilestonesCompleted();
@@ -247,7 +233,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         deal.currentMilestone += 1;
         deal.totalBalance -= amount;
 
-        // Credit Payee's withdrawable balance immediately for THIS milestone
+        // Credit Payee's withdrawable balance immediately
         pendingWithdrawals[deal.payee] += amount;
 
         emit MilestoneReleased(_dealId, currentId, amount);
@@ -306,8 +292,8 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
 
     /**
      * @notice Cancels a deal.
-     * @dev Unilateral cancellation by payer if payee has not joined yet.
-     *      Requires off-chain EIP-712 signatures from BOTH payer and payee if payee has joined.
+     * @dev Unilateral cancellation by payer if payee has not joined/been selected yet.
+     *      Requires off-chain EIP-712 signatures from BOTH payer and payee if payee is assigned.
      */
     function cancelDeal(
         uint256 _dealId,
@@ -319,7 +305,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
 
         if (deal.payee == address(0)) {
-            // Unilateral cancellation by payer before payee joins
+            // Unilateral cancellation by payer before payee is selected
             if (deal.payer != msg.sender) revert NotAuthorized();
         } else {
             // Check signature expiry

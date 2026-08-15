@@ -25,6 +25,16 @@ contract ArbitrationCourt {
     IEscrowCore public escrowCore;
     IIdentityRegister public identityRegister;
 
+
+    struct Case{
+        uint256 dealId;
+        string reason;
+        bytes32 evidenceHashA;
+        bytes32 evidenceHashB;
+        CaseStatus status;
+        address[] arbiters;
+    }
+
     constructor(
         address _token,
         address _identityRegister,
@@ -42,7 +52,7 @@ contract ArbitrationCourt {
 
         error InvalidAddress();
 
-    function createCase(uint256 dealId, string calldata reason) external returns(uint256 caseId){
+    function createCase(uint256 dealId, string calldata reason,bytes32 evidenceHashA,bytes32 evidenceHashB) external returns(uint256 caseId){
 
     }
 }

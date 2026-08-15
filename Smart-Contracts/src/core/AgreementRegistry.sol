@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
 
 interface IEscrowCoreSync {
@@ -17,7 +18,7 @@ interface IEscrowCoreSync {
  *         Acceptance automatically signs Document B on behalf of the Payer and
  *         triggers EscrowCore to lock in the Payee.
  */
-contract AgreementRegistry is EIP712 {
+contract AgreementRegistry is EIP712, Ownable {
     using ECDSA for bytes32;
 
     IIdentityRegister public immutable identityRegister;
@@ -71,6 +72,7 @@ contract AgreementRegistry is EIP712 {
     error NotPayer();
     error DocumentNotFound();
     error AgreementAlreadySubmitted();
+    error ZeroAddress();
 
     modifier onlyVerified() {
         if (!identityRegister.isVerified(msg.sender)) revert NotVerified();
@@ -81,19 +83,26 @@ contract AgreementRegistry is EIP712 {
         if (msg.sender != dealPayer[dealId]) revert NotPayer();
         _;
     }
+
     modifier onlyEscrowCore() {
         if (msg.sender != escrowCore) revert NotAuthorized();
         _;
     }
 
     constructor(address _identityRegister)
+        Ownable(msg.sender)
         EIP712("Lexo AgreementRegistry", "1")
     {
+        if (_identityRegister == address(0)) revert ZeroAddress();
         identityRegister = IIdentityRegister(_identityRegister);
     }
 
-    function setEscrowCore(address _escrowCore) external {
+    /**
+     * @notice Sets the EscrowCore address. Restricted to owner to prevent front-running.
+     */
+    function setEscrowCore(address _escrowCore) external onlyOwner {
         if (escrowCore != address(0)) revert EscrowCoreAlreadySet();
+        if (_escrowCore == address(0)) revert ZeroAddress();
         escrowCore = _escrowCore;
     }
 
@@ -113,9 +122,9 @@ contract AgreementRegistry is EIP712 {
             payeeSigned: false,
             exists: true
         });
-        dealPayer[dealId] = msg.sender;
+        dealPayer[dealId] = tx.origin; // Set deal payer to caller origin who initiated createDeal in EscrowCore
 
-        emit DocumentSubmitted(dealId, DOC_A, msg.sender, documentHash);
+        emit DocumentSubmitted(dealId, DOC_A, tx.origin, documentHash);
     }
 
     /**
@@ -137,7 +146,6 @@ contract AgreementRegistry is EIP712 {
 
     /**
      * @notice Payer accepts a Payee's Document B terms using an EIP-712 signature over Doc B.
-     *         Automatically marks Doc B as payerSigned, assigns dealPayee, and syncs EscrowCore.
      */
     function acceptPayeeAgreement(
         uint256 dealId,
@@ -160,7 +168,7 @@ contract AgreementRegistry is EIP712 {
         dealPayee[dealId] = candidatePayee;
         agreements[dealId][DOC_B] = AgreementDoc({
             contentHash: docHash,
-            payerSigned: true,  // Automatically signed by Payer upon acceptance
+            payerSigned: true,
             payeeSigned: false,
             exists: true
         });
@@ -168,17 +176,17 @@ contract AgreementRegistry is EIP712 {
         emit PayeeAgreementAccepted(dealId, candidatePayee, docHash);
         emit DocumentSigned(dealId, DOC_B, msg.sender);
 
-        if (escrowCore != address(0)) {
-            IEscrowCoreSync(escrowCore).syncPayeeFromRegistry(dealId);
-        }
-
         if (haveBothSigned(dealId)) {
             emit BothDocumentsSigned(dealId);
+        }
+
+        if (escrowCore != address(0)) {
+            IEscrowCoreSync(escrowCore).syncPayeeFromRegistry(dealId);
         }
     }
 
     /**
-     * @notice Allows the Payer to reject a candidate Payee's submitted Document B.
+     * @notice Allows the Payer to reject a candidate Payee's submitted Document B and cleans up candidate state.
      */
     function rejectPayeeAgreement(uint256 dealId, address candidatePayee)
         external
@@ -187,6 +195,18 @@ contract AgreementRegistry is EIP712 {
         if (candidateDocuments[dealId][candidatePayee] == bytes32(0)) revert DocumentNotFound();
 
         delete candidateDocuments[dealId][candidatePayee];
+
+        // Clean up candidatePayees array via swap-and-pop
+        address[] storage candidates = candidatePayees[dealId];
+        uint256 len = candidates.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (candidates[i] == candidatePayee) {
+                candidates[i] = candidates[len - 1];
+                candidates.pop();
+                break;
+            }
+        }
+
         emit PayeeAgreementRejected(dealId, candidatePayee);
     }
 
@@ -276,5 +296,24 @@ contract AgreementRegistry is EIP712 {
             abi.encode(AGREEMENT_TYPEHASH, dealId, docIndex, doc.contentHash)
         );
         return _hashTypedDataV4(structHash);
+    }
+
+    function getCandidateSigningDigest(uint256 dealId, address candidatePayee)
+        external
+        view
+        returns (bytes32)
+    {
+        bytes32 docHash = candidateDocuments[dealId][candidatePayee];
+        if (docHash == bytes32(0)) revert DocumentNotFound();
+
+        bytes32 structHash = keccak256(
+            abi.encode(AGREEMENT_TYPEHASH, dealId, DOC_B, docHash)
+        );
+        return _hashTypedDataV4(structHash);
+    }
+
+    function getDocumentHashByDeal(uint256 dealId) external view returns (bytes32 docAHash, bytes32 docBHash) {
+        docAHash = agreements[dealId][DOC_A].contentHash;
+        docBHash = agreements[dealId][DOC_B].contentHash;
     }
 }

@@ -2,9 +2,13 @@
 pragma solidity ^0.8.30;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
@@ -25,6 +29,9 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     IIdentityRegister public identityRegister;
     IArbitrationCourt public arbiter;
     IAgreementRegistry public agreementRegistry;
+
+    /// @notice Dedicated treasury address for collecting fees
+    address public feeRecipient;
 
     uint256 public constant MAX_MILESTONES = 15;
     uint256 public constant FEE_BPS = 30; // 0.3% fee in basis points (30 / 10_000)
@@ -53,7 +60,13 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     error SignatureExpired();
     error AgreementsNotSigned();
 
-    enum Status { InProgress, Disputed, Completed, Resolved, Cancelled }
+    enum Status {
+        InProgress,
+        Disputed,
+        Completed,
+        Resolved,
+        Cancelled
+    }
 
     struct Deal {
         address payer;
@@ -84,17 +97,40 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     mapping(uint256 => Dispute) public disputeLogs;
     mapping(address => uint256) public nonces;
     mapping(uint256 => address[]) public invitedPayees;
+    mapping(address => uint256[]) private _invitedDeals;
+    mapping(address => uint256[]) private _payerDeals;
+    mapping(address => uint256[]) private _payeeDeals;
 
     // Events
-    event DealCreated(uint256 indexed dealId, address indexed payer, uint256 totalBalance);
-    event MilestoneReleased(uint256 indexed dealId, uint256 indexed milestoneId, uint256 amountReleased);
+    event DealCreated(
+        uint256 indexed dealId,
+        address indexed payer,
+        uint256 totalBalance
+    );
+    event MilestoneReleased(
+        uint256 indexed dealId,
+        uint256 indexed milestoneId,
+        uint256 amountReleased
+    );
     event DealCompleted(uint256 indexed dealId);
-    event DisputeRaised(address indexed raisor, uint256 indexed dealId, string reason);
-    event DisputeResolved(uint256 indexed dealId, uint256 payerAmount, uint256 payeeAmount);
+    event DisputeRaised(
+        address indexed raisor,
+        uint256 indexed dealId,
+        string reason
+    );
+    event DisputeResolved(
+        uint256 indexed dealId,
+        uint256 payerAmount,
+        uint256 payeeAmount
+    );
     event FundsWithdrawn(address indexed user, uint256 amount);
-    event FeeCollected(address indexed withdrawnFrom, uint256 amount);
+    event FeeCollected(address indexed withdrawnFrom, uint256 feeAmount);
     event PayeeSynced(uint256 indexed dealId, address indexed payee);
     event DealCancelled(uint256 indexed dealId, address indexed cancelledBy);
+    event FeeRecipientUpdated(
+        address indexed oldRecipient,
+        address indexed newRecipient
+    );
 
     modifier onlyVerified() {
         if (!identityRegister.isVerified(msg.sender)) revert UserNotVerified();
@@ -110,15 +146,32 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         address _token,
         address _identityRegister,
         address _arbiter,
-        address _agreementRegistry
+        address _agreementRegistry,
+        address _feeRecipient
     ) Ownable(msg.sender) EIP712("Lexo EscrowCore", "1") {
-        if (_token == address(0) || _identityRegister == address(0) || _arbiter == address(0) || _agreementRegistry == address(0)) {
+        if (
+            _token == address(0) ||
+            _identityRegister == address(0) ||
+            _arbiter == address(0) ||
+            _agreementRegistry == address(0) ||
+            _feeRecipient == address(0)
+        ) {
             revert InvalidAddress();
         }
         token = IERC20(_token);
         identityRegister = IIdentityRegister(_identityRegister);
         arbiter = IArbitrationCourt(_arbiter);
         agreementRegistry = IAgreementRegistry(_agreementRegistry);
+        feeRecipient = _feeRecipient;
+    }
+
+    /**
+     * @notice Allows the contract owner to update the treasury fee recipient address.
+     */
+    function setFeeRecipient(address _newFeeRecipient) external onlyOwner {
+        if (_newFeeRecipient == address(0)) revert InvalidAddress();
+        emit FeeRecipientUpdated(feeRecipient, _newFeeRecipient);
+        feeRecipient = _newFeeRecipient;
     }
 
     /**
@@ -136,7 +189,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         token.safeTransfer(msg.sender, netAmount);
 
         if (fee > 0) {
-            token.safeTransfer(owner(), fee);
+            token.safeTransfer(feeRecipient, fee);
             emit FeeCollected(msg.sender, fee);
         }
 
@@ -152,48 +205,57 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         address[] memory _invitedPayees,
         bytes32 _documentHash
     ) external onlyVerified nonReentrant {
-        if (_description.length != _amount.length) revert LengthMismatch();
-        if (_amount.length == 0 || _amount.length > MAX_MILESTONES) revert InvalidMilestoneCount();
+        uint256 len = _amount.length;
+        if (_description.length != len) revert LengthMismatch();
+        if (len == 0 || len > MAX_MILESTONES) revert InvalidMilestoneCount();
 
         uint256 total = 0;
-        for (uint256 i = 0; i < _amount.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
             total += _amount[i];
         }
 
         dealCount++;
-        deals[dealCount] = Deal({
+        uint256 currentDealId = dealCount;
+
+        deals[currentDealId] = Deal({
             payer: msg.sender,
             payee: address(0),
             totalBalance: total,
-            totalMilestones: _amount.length,
+            totalMilestones: len,
             currentMilestone: 0,
             status: Status.InProgress
         });
 
-        for (uint256 i = 0; i < _amount.length; i++) {
-            milestones[dealCount][i] = Milestone({
+        _payerDeals[msg.sender].push(currentDealId);
+
+        for (uint256 i = 0; i < len; i++) {
+            milestones[currentDealId][i] = Milestone({
                 description: _description[i],
                 amount: _amount[i],
                 isCompleted: false
             });
         }
-        
-        if (_invitedPayees.length > 0) {
-            invitedPayees[dealCount] = _invitedPayees;
+
+        uint256 payeesLen = _invitedPayees.length;
+        if (payeesLen > 0) {
+            invitedPayees[currentDealId] = _invitedPayees;
+            for (uint256 i = 0; i < payeesLen; i++) {
+                _invitedDeals[_invitedPayees[i]].push(currentDealId);
+            }
         }
 
-        // Lock funds into EscrowCore
         token.safeTransferFrom(msg.sender, address(this), total);
+        agreementRegistry.submitPayerDocument(currentDealId, _documentHash);
 
-        // Submit and automatically sign Payer's Document A in AgreementRegistry
-        agreementRegistry.submitPayerDocument(dealCount, _documentHash);
-        emit DealCreated(dealCount, msg.sender, total);
+        emit DealCreated(currentDealId, msg.sender, total);
     }
 
     /**
      * @notice Callback called by AgreementRegistry when Payer accepts a candidate Payee's Document B.
      */
-    function syncPayeeFromRegistry(uint256 _dealId) external onlyAgreementRegistry {
+    function syncPayeeFromRegistry(
+        uint256 _dealId
+    ) external onlyAgreementRegistry {
         Deal storage deal = deals[_dealId];
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
         if (deal.payee != address(0)) revert PayeeAlreadyAssigned();
@@ -201,23 +263,50 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         address selectedPayee = agreementRegistry.dealPayee(_dealId);
         if (selectedPayee == address(0)) revert PayeeNotSelected();
 
+        if (!identityRegister.isVerified(selectedPayee))
+            revert PayeeNotVerified();
+
         deal.payee = selectedPayee;
+        _payeeDeals[selectedPayee].push(_dealId);
+
         emit PayeeSynced(_dealId, selectedPayee);
     }
 
-    function getInvitedPayees(uint256 _dealId) external view returns (address[] memory) {
+    function getInvitedPayees(
+        uint256 _dealId
+    ) external view returns (address[] memory) {
         return invitedPayees[_dealId];
+    }
+
+    function getInvitedDeals(
+        address _payee
+    ) external view returns (uint256[] memory) {
+        return _invitedDeals[_payee];
+    }
+
+    function getPayerDeals(
+        address _payer
+    ) external view returns (uint256[] memory) {
+        return _payerDeals[_payer];
+    }
+
+    function getPayeeDeals(
+        address _payee
+    ) external view returns (uint256[] memory) {
+        return _payeeDeals[_payee];
     }
 
     /**
      * @notice Payer approves current milestone -> releases funds once both parties have signed both documents.
      */
-    function approveAndReleaseMilestone(uint256 _dealId) external onlyVerified nonReentrant {
+    function approveAndReleaseMilestone(
+        uint256 _dealId
+    ) external onlyVerified nonReentrant {
         Deal storage deal = deals[_dealId];
         if (deal.payer != msg.sender) revert NotAuthorized();
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
-        // Enforce full signature execution across Doc A and Doc B
-        if (!agreementRegistry.haveBothSigned(_dealId)) revert AgreementsNotSigned();
+        if (!agreementRegistry.haveBothSigned(_dealId))
+            revert AgreementsNotSigned();
 
         uint256 currentId = deal.currentMilestone;
         if (currentId >= deal.totalMilestones) revert AllMilestonesCompleted();
@@ -227,17 +316,14 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
 
         if (deal.totalBalance < amount) revert InsufficientBalance();
 
-        // Update State
         milestone.isCompleted = true;
         deal.currentMilestone += 1;
         deal.totalBalance -= amount;
 
-        // Credit Payee's withdrawable balance immediately
         pendingWithdrawals[deal.payee] += amount;
 
         emit MilestoneReleased(_dealId, currentId, amount);
 
-        // Finalize deal when the last milestone is approved
         if (deal.currentMilestone == deal.totalMilestones) {
             deal.status = Status.Completed;
             emit DealCompleted(_dealId);
@@ -247,18 +333,22 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     /**
      * @notice Raises a dispute if an issue arises between payer and payee.
      */
-    function raiseDispute(uint256 _dealId, string calldata _reason) external onlyVerified {
+    function raiseDispute(
+        uint256 _dealId,
+        string calldata _reason
+    ) external onlyVerified {
         Deal storage deal = deals[_dealId];
-        if (deal.payee != msg.sender && deal.payer != msg.sender) revert NotAuthorized();
+        if (deal.payee != msg.sender && deal.payer != msg.sender)
+            revert NotAuthorized();
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
-
+        (bytes32 docAHash, bytes32 docBHash) = agreementRegistry.getDocumentHashByDeal(_dealId);
         deal.status = Status.Disputed;
         disputeLogs[_dealId] = Dispute({
             dealId: _dealId,
             raisor: msg.sender,
             reason: _reason
         });
-        arbiter.createCase(_dealId, _reason);
+        arbiter.createCase(_dealId, _reason, docAHash, docBHash);
 
         emit DisputeRaised(msg.sender, _dealId, _reason);
     }
@@ -274,7 +364,8 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         if (msg.sender != address(arbiter)) revert ArbiterRequired();
         Deal storage deal = deals[_dealId];
         if (deal.status != Status.Disputed) revert InvalidDealStatus();
-        if (_payerAmount + _payeeAmount != deal.totalBalance) revert LengthMismatch();
+        if (_payerAmount + _payeeAmount != deal.totalBalance)
+            revert LengthMismatch();
 
         deal.totalBalance = 0;
         deal.status = Status.Resolved;
@@ -291,8 +382,6 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
 
     /**
      * @notice Cancels a deal.
-     * @dev Unilateral cancellation by payer if payee has not joined/been selected yet.
-     *      Requires off-chain EIP-712 signatures from BOTH payer and payee if payee is assigned.
      */
     function cancelDeal(
         uint256 _dealId,
@@ -304,37 +393,46 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         if (deal.status != Status.InProgress) revert InvalidDealStatus();
 
         if (deal.payee == address(0)) {
-            // Unilateral cancellation by payer before payee is selected
             if (deal.payer != msg.sender) revert NotAuthorized();
         } else {
-            // Check signature expiry
             if (block.timestamp > _deadline) revert SignatureExpired();
 
-            // 1. Verify Payer Signature
             bytes32 payerStructHash = keccak256(
-                abi.encode(CANCEL_DEAL_TYPEHASH, _dealId, nonces[deal.payer], _deadline)
+                abi.encode(
+                    CANCEL_DEAL_TYPEHASH,
+                    _dealId,
+                    nonces[deal.payer],
+                    _deadline
+                )
             );
             bytes32 payerTypedHash = _hashTypedDataV4(payerStructHash);
-            address recoveredPayer = ECDSA.recover(payerTypedHash, _payerSignature);
+            address recoveredPayer = ECDSA.recover(
+                payerTypedHash,
+                _payerSignature
+            );
             if (recoveredPayer != deal.payer) revert InvalidSignature();
 
-            // 2. Verify Payee Signature
             bytes32 payeeStructHash = keccak256(
-                abi.encode(CANCEL_DEAL_TYPEHASH, _dealId, nonces[deal.payee], _deadline)
+                abi.encode(
+                    CANCEL_DEAL_TYPEHASH,
+                    _dealId,
+                    nonces[deal.payee],
+                    _deadline
+                )
             );
             bytes32 payeeTypedHash = _hashTypedDataV4(payeeStructHash);
-            address recoveredPayee = ECDSA.recover(payeeTypedHash, _payeeSignature);
+            address recoveredPayee = ECDSA.recover(
+                payeeTypedHash,
+                _payeeSignature
+            );
             if (recoveredPayee != deal.payee) revert InvalidSignature();
 
-            // 3. Increment nonces to consume signatures
             nonces[deal.payer]++;
             nonces[deal.payee]++;
         }
 
-        // 4. Update deal state
         deal.status = Status.Cancelled;
 
-        // Refund remaining unreleased balance to payer
         if (deal.totalBalance > 0) {
             pendingWithdrawals[deal.payer] += deal.totalBalance;
             deal.totalBalance = 0;

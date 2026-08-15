@@ -54,4 +54,5 @@ interface IAgreementRegistry {
     function getCandidatePayees(uint256 dealId) external view returns (address[] memory);
     function getDocumentStatus(uint256 dealId, uint8 docIndex) external view returns (bytes32 contentHash, bool payerSigned, bool payeeSigned, bool exists);
     function getSigningDigest(uint256 dealId, uint8 docIndex) external view returns (bytes32);
+    function getDocumentHashByDeal(uint256 dealId) external view returns (bytes32 docAHash, bytes32 docBHash);
 }

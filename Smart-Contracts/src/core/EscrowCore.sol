@@ -117,7 +117,8 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         address indexed raisor,
         uint256 indexed dealId,
         string reason,
-        uint256 caseId
+        uint256 caseId,
+        uint256 arbitrationFee
     );
     event DisputeResolved(
         uint256 indexed dealId,
@@ -131,6 +132,12 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     event FeeRecipientUpdated(
         address indexed oldRecipient,
         address indexed newRecipient
+    );
+    event DisputeReRaised(
+        address indexed raisor,
+        uint256 indexed dealId,
+        string reason,
+        uint256 caseId
     );
 
     modifier onlyVerified() {
@@ -349,9 +356,31 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
             raisor: msg.sender,
             reason: _reason
         });
-        uint256 caseId = arbiter.createCase(_dealId, _reason, docAHash, docBHash);
 
-        emit DisputeRaised(msg.sender, _dealId, _reason, caseId);
+        uint256 arbitrationFee = deal.totalBalance / 100; // 1% arbitration fee
+
+        uint256 caseId = arbiter.createCase(_dealId, _reason, docAHash, docBHash, arbitrationFee);
+
+        emit DisputeRaised(msg.sender, _dealId, _reason, caseId, arbitrationFee);
+    }
+
+    function reRaiseDispute(
+        uint256 _dealId,
+        string calldata _reason,
+        uint256 _caseId
+    ) external onlyVerified {
+        Deal storage deal = deals[_dealId];
+        if (deal.payee != msg.sender && deal.payer != msg.sender)
+            revert NotAuthorized();
+        if (deal.status != Status.Disputed) revert InvalidDealStatus();
+        disputeLogs[_dealId] = Dispute({
+            dealId: _dealId,
+            raisor: msg.sender,
+            reason: _reason
+        });
+        uint256 caseId = arbiter.recreateCase(_caseId, _reason);
+
+        emit DisputeReRaised(msg.sender, _dealId, _reason, caseId);
     }
 
     /**
@@ -440,5 +469,9 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         }
 
         emit DealCancelled(_dealId, msg.sender);
+    }
+
+    function getDealTotalBalance(uint256 _dealId) external view returns (uint256) {
+        return deals[_dealId].totalBalance;
     }
 }

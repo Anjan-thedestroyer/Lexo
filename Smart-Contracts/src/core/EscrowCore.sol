@@ -116,7 +116,8 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     event DisputeRaised(
         address indexed raisor,
         uint256 indexed dealId,
-        string reason
+        string reason,
+        uint256 caseId
     );
     event DisputeResolved(
         uint256 indexed dealId,
@@ -348,9 +349,9 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
             raisor: msg.sender,
             reason: _reason
         });
-        arbiter.createCase(_dealId, _reason, docAHash, docBHash);
+        uint256 caseId = arbiter.createCase(_dealId, _reason, docAHash, docBHash);
 
-        emit DisputeRaised(msg.sender, _dealId, _reason);
+        emit DisputeRaised(msg.sender, _dealId, _reason, caseId);
     }
 
     /**

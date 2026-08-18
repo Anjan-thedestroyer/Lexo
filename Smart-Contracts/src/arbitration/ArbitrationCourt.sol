@@ -9,7 +9,7 @@ import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
 import {IEscrowCore} from "../interfaces/IEscrowCore.sol";
 
 /// @title ArbitrationCourt
-/// @notice Dispute engine supporting primary cases, appeal recreation (recase), arbiter penalization on overturned verdicts, and 7-day execution delays.
+/// @notice Dispute engine with direct single-step voting and 7-day delayed reward & escrow execution.
 contract ArbitrationCourt is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -17,7 +17,6 @@ contract ArbitrationCourt is ReentrancyGuard {
         Created,
         EvidenceSubmission,
         Voting,
-        Reveal,
         Decided,
         Executed,
         Cancelled
@@ -32,7 +31,7 @@ contract ArbitrationCourt is ReentrancyGuard {
 
     struct Case {
         uint256 dealId;
-        uint256 parentCaseId; // 0 for primary cases, non-zero for appeal (recase)
+        uint256 parentCaseId;
         bytes32 agreementHash;
         string reason;
         bytes32 evidenceHashA;
@@ -43,8 +42,7 @@ contract ArbitrationCourt is ReentrancyGuard {
         address[] arbiters;
         uint256 createdAt;
         uint256 evidenceDeadline;
-        uint256 commitDeadline;
-        uint256 revealDeadline;
+        uint256 votingDeadline;
         uint256 decidedAt;
         VoteChoice winningChoice;
         bool isAppeal;
@@ -52,10 +50,8 @@ contract ArbitrationCourt is ReentrancyGuard {
     }
 
     struct ArbiterVote {
-        bytes32 commitHash;
         VoteChoice choice;
-        bool committed;
-        bool revealed;
+        bool hasVoted;
     }
 
     // --- State Variables ---
@@ -68,9 +64,8 @@ contract ArbitrationCourt is ReentrancyGuard {
     uint256 public constant INITIAL_ARBITERS = 3;
     uint256 public constant ADDITIONAL_APPEAL_ARBITERS = 2;
     uint256 public constant EVIDENCE_DURATION = 3 days;
-    uint256 public constant COMMIT_DURATION = 2 days;
-    uint256 public constant REVEAL_DURATION = 2 days;
-    uint256 public constant EXECUTION_DELAY = 7 days; // 7-day lock period before funds can be released
+    uint256 public constant VOTING_DURATION = 3 days;
+    uint256 public constant EXECUTION_DELAY = 7 days;
 
     uint256 public caseCounter;
     mapping(uint256 => Case) public cases;
@@ -84,22 +79,19 @@ contract ArbitrationCourt is ReentrancyGuard {
     error InvalidStatus(CaseStatus current, CaseStatus required);
     error DeadlineNotReached();
     error DeadlinePassed();
-    error AlreadyCommitted();
-    error AlreadyRevealed();
-    error InvalidCommitment();
+    error AlreadyVoted();
+    error InvalidChoice();
     error NotAssignedArbiter();
     error TieVoteUnresolved();
     error ExecutionDelayActive();
     error AlreadyAppealed();
-    error InvalidParentCase();
 
     // --- Events ---
 
     event CaseCreated(uint256 indexed caseId, uint256 indexed dealId, address indexed initiator, address[] arbiters);
     event CaseRecreated(uint256 indexed newCaseId, uint256 indexed parentCaseId, address[] arbiters);
     event EvidenceSubmitted(uint256 indexed caseId, address indexed party, bytes32 evidenceHash);
-    event VoteCommitted(uint256 indexed caseId, address indexed arbiter, bytes32 commitHash);
-    event VoteRevealed(uint256 indexed caseId, address indexed arbiter, VoteChoice choice);
+    event VoteCast(uint256 indexed caseId, address indexed arbiter, VoteChoice choice);
     event CaseDecided(uint256 indexed caseId, VoteChoice outcome, uint256 executionUnlockTime);
     event CaseExecuted(uint256 indexed caseId, VoteChoice outcome);
     event PreviousArbitersPenalized(uint256 indexed parentCaseId, uint256 indexed appealCaseId);
@@ -126,9 +118,9 @@ contract ArbitrationCourt is ReentrancyGuard {
         escrowCore = IEscrowCore(_escrowCore);
     }
 
-    // --- 1. Dispute Creation & Appeal (recreateCase) ---
+    // --- 1. Dispute Creation & Appeal ---
 
-    /// @notice Opens a primary dispute for an escrow deal.
+    /// @notice Opens a primary dispute and locks the arbiter reward pool in contract.
     function createCase(
         uint256 _dealId,
         bytes32 _agreementHash,
@@ -137,6 +129,11 @@ contract ArbitrationCourt is ReentrancyGuard {
     ) external returns (uint256 caseId) {
         if (_agreementHash == bytes32(0)) revert InvalidAddress();
 
+        // Lock total reward inside contract until execution window finishes
+        if (rewardAmount > 0) {
+            token.safeTransferFrom(msg.sender, address(this), rewardAmount);
+        }
+
         caseId = ++caseCounter;
         Case storage c = cases[caseId];
 
@@ -144,6 +141,7 @@ contract ArbitrationCourt is ReentrancyGuard {
         c.agreementHash = _agreementHash;
         c.reason = _reason;
         c.initiator = msg.sender;
+        c.rewardAmount = rewardAmount;
         c.createdAt = block.timestamp;
         c.status = CaseStatus.EvidenceSubmission;
         c.evidenceDeadline = block.timestamp + EVIDENCE_DURATION;
@@ -156,13 +154,17 @@ contract ArbitrationCourt is ReentrancyGuard {
         emit CaseCreated(caseId, _dealId, msg.sender, c.arbiters);
     }
 
-    /// @notice Recreates a case on appeal during the 7-day execution window. Includes previous arbiters plus 2 new ones.
-    function recreateCase(uint256 _parentCaseId, string calldata _appealReason) external returns (uint256 newCaseId) {
+    /// @notice Recreates a case on appeal during the 7-day execution window.
+    function recreateCase(uint256 _parentCaseId, string calldata _appealReason, uint256 rewardAmount) external returns (uint256 newCaseId) {
         Case storage parent = cases[_parentCaseId];
-        
+
         if (parent.status != CaseStatus.Decided) revert InvalidStatus(parent.status, CaseStatus.Decided);
         if (parent.appealTriggered) revert AlreadyAppealed();
         if (block.timestamp >= parent.decidedAt + EXECUTION_DELAY) revert DeadlinePassed();
+
+        if (rewardAmount > 0) {
+            token.safeTransferFrom(msg.sender, address(this), rewardAmount);
+        }
 
         parent.appealTriggered = true;
 
@@ -174,19 +176,18 @@ contract ArbitrationCourt is ReentrancyGuard {
         appeal.agreementHash = parent.agreementHash;
         appeal.reason = _appealReason;
         appeal.initiator = msg.sender;
+        appeal.rewardAmount = rewardAmount;
         appeal.createdAt = block.timestamp;
         appeal.isAppeal = true;
         appeal.status = CaseStatus.EvidenceSubmission;
         appeal.evidenceDeadline = block.timestamp + EVIDENCE_DURATION;
 
-        // 1. Copy all previous arbiters into the appeal panel
         for (uint256 i = 0; i < parent.arbiters.length; i++) {
             address prevArb = parent.arbiters[i];
             appeal.arbiters.push(prevArb);
-            arbitrationRegister.assignCase(prevArb); // Track capacity in registry
+            arbitrationRegister.assignCase(prevArb);
         }
 
-        // 2. Add 2 new random arbiters to expand panel to 5
         for (uint256 i = 0; i < ADDITIONAL_APPEAL_ARBITERS; i++) {
             address selected = arbitrationRegister.assignRandomCase(newCaseId);
             appeal.arbiters.push(selected);
@@ -195,7 +196,7 @@ contract ArbitrationCourt is ReentrancyGuard {
         emit CaseRecreated(newCaseId, _parentCaseId, appeal.arbiters);
     }
 
-    // --- 2. Evidence & Commit-Reveal Voting ---
+    // --- 2. Evidence & Direct Voting ---
 
     function submitEvidence(uint256 _caseId, bytes32 _evidenceHash) external inStatus(_caseId, CaseStatus.EvidenceSubmission) {
         Case storage c = cases[_caseId];
@@ -217,55 +218,31 @@ contract ArbitrationCourt is ReentrancyGuard {
         }
 
         c.status = CaseStatus.Voting;
-        c.commitDeadline = block.timestamp + COMMIT_DURATION;
+        c.votingDeadline = block.timestamp + VOTING_DURATION;
     }
 
-    function commitVote(uint256 _caseId, bytes32 _commitHash) external inStatus(_caseId, CaseStatus.Voting) {
+    /// @notice Direct single-step voting replacing commit/reveal
+    function castVote(uint256 _caseId, VoteChoice _choice) external inStatus(_caseId, CaseStatus.Voting) {
         Case storage c = cases[_caseId];
-        if (block.timestamp > c.commitDeadline) revert DeadlinePassed();
+        if (block.timestamp > c.votingDeadline) revert DeadlinePassed();
+        if (_choice == VoteChoice.None) revert InvalidChoice();
         if (!_isArbiter(c.arbiters, msg.sender)) revert NotAssignedArbiter();
 
         ArbiterVote storage v = votes[_caseId][msg.sender];
-        if (v.committed) revert AlreadyCommitted();
+        if (v.hasVoted) revert AlreadyVoted();
 
-        v.commitHash = _commitHash;
-        v.committed = true;
-
-        emit VoteCommitted(_caseId, msg.sender, _commitHash);
-    }
-
-    function startRevealPhase(uint256 _caseId) external inStatus(_caseId, CaseStatus.Voting) {
-        Case storage c = cases[_caseId];
-        if (block.timestamp <= c.commitDeadline) revert DeadlineNotReached();
-
-        c.status = CaseStatus.Reveal;
-        c.revealDeadline = block.timestamp + REVEAL_DURATION;
-    }
-
-    function revealVote(uint256 _caseId, VoteChoice _choice, bytes32 _salt) external inStatus(_caseId, CaseStatus.Reveal) {
-        Case storage c = cases[_caseId];
-        if (block.timestamp > c.revealDeadline) revert DeadlinePassed();
-        if (_choice == VoteChoice.None) revert InvalidCommitment();
-
-        ArbiterVote storage v = votes[_caseId][msg.sender];
-        if (!v.committed) revert Unauthorized();
-        if (v.revealed) revert AlreadyRevealed();
-
-        bytes32 checkHash = keccak256(abi.encodePacked(_choice, _salt));
-        if (checkHash != v.commitHash) revert InvalidCommitment();
-
-        v.revealed = true;
         v.choice = _choice;
+        v.hasVoted = true;
         voteCounts[_caseId][_choice] += 1;
 
-        emit VoteRevealed(_caseId, msg.sender, _choice);
+        emit VoteCast(_caseId, msg.sender, _choice);
     }
 
-    // --- 3. Resolution & Punishment Logic ---
+    // --- 3. Resolution ---
 
-    function resolveCase(uint256 _caseId) external inStatus(_caseId, CaseStatus.Reveal) nonReentrant {
+    function resolveCase(uint256 _caseId) external inStatus(_caseId, CaseStatus.Voting) nonReentrant {
         Case storage c = cases[_caseId];
-        if (block.timestamp <= c.revealDeadline) revert DeadlineNotReached();
+        if (block.timestamp <= c.votingDeadline) revert DeadlineNotReached();
 
         uint256 releaseVotes = voteCounts[_caseId][VoteChoice.ReleaseToBuyer];
         uint256 refundVotes = voteCounts[_caseId][VoteChoice.RefundToSeller];
@@ -285,32 +262,30 @@ contract ArbitrationCourt is ReentrancyGuard {
 
         c.winningChoice = outcome;
         c.status = CaseStatus.Decided;
-        c.decidedAt = block.timestamp; // Starts the mandatory 7-day cooldown
+        c.decidedAt = block.timestamp; // Triggers the 7-day cooldown
 
-        // Update reputation & release case load for current arbiters
+        // Penalize / reward reputations without sending payouts yet
         for (uint256 i = 0; i < c.arbiters.length; i++) {
             address arb = c.arbiters[i];
             ArbiterVote memory v = votes[_caseId][arb];
 
-            if (v.revealed && v.choice == outcome) {
+            if (v.hasVoted && v.choice == outcome) {
                 arbitrationRegister.updateReputation(arb, 10);
-            } else if (!v.revealed) {
+            } else if (!v.hasVoted) {
                 arbitrationRegister.slash(arb, 20 * 1e6, address(this));
                 arbitrationRegister.updateReputation(arb, -20);
             }
             arbitrationRegister.finishCase(arb);
         }
 
-        // --- PUNISH PREVIOUS ARBITERS IF APPEAL OVERTURNS DECISION ---
         if (c.isAppeal) {
             Case storage parent = cases[c.parentCaseId];
 
-            // If appeal outcome differs from parent outcome, slash previous panel
             if (c.winningChoice != parent.winningChoice) {
                 for (uint256 i = 0; i < parent.arbiters.length; i++) {
                     address prevArb = parent.arbiters[i];
-                    arbitrationRegister.slash(prevArb, 50 * 1e6, address(this)); // Slash 50 USDT penalty
-                    arbitrationRegister.updateReputation(prevArb, -30);           // Heavy reputation deduction
+                    arbitrationRegister.slash(prevArb, 50 * 1e6, address(this));
+                    arbitrationRegister.updateReputation(prevArb, -30);
                 }
                 emit PreviousArbitersPenalized(c.parentCaseId, _caseId);
             }
@@ -319,9 +294,9 @@ contract ArbitrationCourt is ReentrancyGuard {
         emit CaseDecided(_caseId, outcome, block.timestamp + EXECUTION_DELAY);
     }
 
-    // --- 4. Execution After 7 Days ---
+    // --- 4. Execution & Payout (After 7 Days) ---
 
-    /// @notice Executes settlement on EscrowCore after the 7-day delay expires.
+    /// @notice Releases escrow deal funds and distributes arbiter rewards AFTER 7 full days pass.
     function executeCase(uint256 _caseId) external inStatus(_caseId, CaseStatus.Decided) nonReentrant {
         Case storage c = cases[_caseId];
 
@@ -330,6 +305,7 @@ contract ArbitrationCourt is ReentrancyGuard {
 
         c.status = CaseStatus.Executed;
 
+        // 1. Settle EscrowCore deal funds
         uint256 totalBalance = escrowCore.getDealTotalBalance(c.dealId);
         uint256 payerAmount = 0;
         uint256 payeeAmount = 0;
@@ -344,6 +320,21 @@ contract ArbitrationCourt is ReentrancyGuard {
         }
 
         escrowCore.resolveDispute(c.dealId, payerAmount, payeeAmount);
+
+        // 2. Distribute locked arbiter rewards after 7 days
+        if (c.rewardAmount > 0 && c.arbiters.length > 0) {
+            uint256 perPerson = c.rewardAmount / c.arbiters.length;
+
+            for (uint256 i = 0; i < c.arbiters.length; i++) {
+                address arb = c.arbiters[i];
+                ArbiterVote memory v = votes[_caseId][arb];
+
+                // Reward only active voters who aligned with winning outcome
+                if (v.hasVoted && v.choice == c.winningChoice) {
+                    token.safeTransfer(arb, perPerson);
+                }
+            }
+        }
 
         emit CaseExecuted(_caseId, c.winningChoice);
     }

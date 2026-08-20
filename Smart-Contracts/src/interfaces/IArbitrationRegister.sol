@@ -3,117 +3,69 @@ pragma solidity ^0.8.30;
 
 /**
  * @title IArbitrationRegister
- * @notice Interface for the ArbitratorRegistry contract.
+ * @notice Interface for managing arbiter registrations, assignments, reputation, and slashing.
  */
 interface IArbitrationRegister {
-    // --- Structs ---
-
-    struct Arbitrator {
-        address wallet;
-        uint256 stake;
-        uint256 activeCases;
-        uint256 reputation;
-        uint256 unstakeRequestedAt;
-        bool active;
-        bool suspended;
-    }
-
     // --- Events ---
 
-    event ArbitratorAdded(bytes32 indexed identityHash, address indexed wallet, uint256 stake);
-    event StakeIncreased(bytes32 indexed identityHash, address indexed wallet, uint256 addedAmount, uint256 newTotalStake);
-    event UnstakeRequested(bytes32 indexed identityHash, address indexed wallet, uint256 timestamp);
-    event UnstakeCompleted(bytes32 indexed identityHash, address indexed wallet, uint256 amountReturned);
-    event Slashed(bytes32 indexed identityHash, address indexed wallet, uint256 amount, address indexed recipient);
-    event ReputationUpdated(bytes32 indexed identityHash, uint256 newReputation);
-    event CaseAssigned(bytes32 indexed identityHash, address indexed wallet, uint256 newActiveCases);
-    event CaseFinished(bytes32 indexed identityHash, address indexed wallet, uint256 newActiveCases);
-    event StatusChanged(bytes32 indexed identityHash, bool suspended, bool active);
-    event WalletChanged(bytes32 indexed identityHash, address indexed oldWallet, address indexed newWallet);
-    event ArbitratorSelected(uint256 indexed caseId, address indexed wallet, uint256 randomIndex, uint256 poolSize);
-
-    // --- Custom Errors ---
-
-    error Unauthorized();
-    error UserNotVerified();
-    error IdentityAlreadyRegistered();
-    error NotRegistered();
-    error NotEnoughStake();
-    error InvalidAmount();
-    error ActiveCasesPending();
-    error UnstakeAlreadyRequested();
-    error UnstakeNotRequested();
-    error UnstakeCooldownActive();
-    error NotEnoughEligibleArbitrators();
-
-    // --- State Variable Getters ---
-
-    function token() external view returns (address);
-
-    function identityRegister() external view returns (address);
-
-    function arbitrationCourt() external view returns (address);
-
-    function MINIMUM_STAKE() external view returns (uint256);
-
-    function UNSTAKE_COOL_DOWN() external view returns (uint256);
-
-    function MAX_ACTIVE_CASES() external view returns (uint256);
-
-    function arbitrators(bytes32 identityHash)
-        external
-        view
-        returns (
-            address wallet,
-            uint256 stake,
-            uint256 activeCases,
-            uint256 reputation,
-            uint256 unstakeRequestedAt,
-            bool active,
-            bool suspended
-        );
-
-    function arbitratorToIdentity(address wallet) external view returns (bytes32);
-
-    function eligiblePool(uint256 index) external view returns (address);
-
-    function arbitratorList(uint256 index) external view returns (address);
-
-    function selectionNonce() external view returns (uint256);
+    event ArbiterRegistered(address indexed arbiter);
+    event ArbiterDeregistered(address indexed arbiter);
+    event ArbiterSlashed(address indexed arbiter, uint256 amount, address indexed recipient);
+    event ReputationUpdated(address indexed arbiter, int256 newReputation);
 
     // --- External / State-Changing Functions ---
 
-    function setArbitrationCourt(address _court) external;
+    /**
+     * @notice Selects and assigns a random active arbiter for a specific case.
+     * @param caseId The ID of the case requiring an arbiter.
+     * @return arbiter The address of the assigned arbiter.
+     */
+    function assignRandomCase(uint256 caseId) external returns (address arbiter);
 
-    function addArbitrator(uint256 _stake) external;
+    /**
+     * @notice Directly assigns a specific arbiter to a case (e.g., during appeals).
+     * @param arbiter The address of the arbiter to assign.
+     */
+    function assignCase(address arbiter) external;
 
-    function changeWallet(address _toWallet) external;
+    /**
+     * @notice Decrements active case load for an arbiter when a case concludes.
+     * @param arbiter The address of the arbiter finishing a case.
+     */
+    function finishCase(address arbiter) external;
 
-    function increaseStake(uint256 _stake) external;
+    /**
+     * @notice Updates the reputation score of an arbiter.
+     * @param arbiter The address of the arbiter.
+     * @param delta The positive or negative score adjustment.
+     */
+    function updateReputation(address arbiter, int256 delta) external;
 
-    function requestUnstake() external;
-
-    function unstake() external;
-
+    /**
+     * @notice Slashes an arbiter's stake or collateral.
+     * @param arbiter The address of the arbiter to slash.
+     * @param amount The amount of tokens to slash.
+     * @param recipient The address receiving the slashed tokens.
+     */
     function slash(
-        address _arbitratorWallet,
-        uint256 _amount,
-        address _recipient
+        address arbiter,
+        uint256 amount,
+        address recipient
     ) external;
-
-    function reactivate() external;
-
-    function updateReputation(address _arbitratorWallet, int256 _delta) external;
-
-    function assignCase(address _arbitratorWallet) external;
-
-    function finishCase(address _arbitratorWallet) external;
-
-    function assignRandomCase(uint256 _caseId) external returns (address selected);
 
     // --- View Functions ---
 
-    function isEligible(address _arbitratorWallet) external view returns (bool);
+    /**
+     * @notice Checks if an address is an active registered arbiter.
+     * @param arbiter The address to verify.
+     * @return True if the arbiter is active.
+     */
+    function isArbiter(address arbiter) external view returns (bool);
 
-    function getEligiblePoolSize() external view returns (uint256);
+    /**
+     * @notice Gets current reputation score for an arbiter.
+     * @param arbiter The address of the arbiter.
+     * @return The numerical reputation score.
+     */
+    function getReputation(address arbiter) external view returns (int256);
 }

@@ -2,70 +2,187 @@
 pragma solidity ^0.8.30;
 
 /**
- * @title IArbitrationRegister
- * @notice Interface for managing arbiter registrations, assignments, reputation, and slashing.
+ * @title IArbitrationCourt
+ * @notice Interface for the ArbitrationCourt dispute resolution contract.
  */
-interface IArbitrationRegister {
+interface IArbitrationCourt {
+    // --- Enums ---
+
+    enum CaseStatus {
+        Created,
+        EvidenceSubmission,
+        Voting,
+        Decided,
+        Executed,
+        Cancelled
+    }
+
+    enum VoteChoice {
+        None,
+        ReleaseToBuyer,
+        RefundToSeller,
+        Split5050
+    }
+
+    // --- Structs ---
+
+    struct Case {
+        uint256 dealId;
+        uint256 parentCaseId;
+        bytes32 agreementHash;
+        string reason;
+        bytes32 evidenceHashA;
+        bytes32 evidenceHashB;
+        uint256 rewardAmount;
+        CaseStatus status;
+        address initiator;
+        address[] arbiters;
+        uint256 createdAt;
+        uint256 evidenceDeadline;
+        uint256 votingDeadline;
+        uint256 decidedAt;
+        VoteChoice winningChoice;
+        bool isAppeal;
+        bool appealTriggered;
+    }
+
+    struct ArbiterVote {
+        VoteChoice choice;
+        bool hasVoted;
+    }
+
     // --- Events ---
 
-    event ArbiterRegistered(address indexed arbiter);
-    event ArbiterDeregistered(address indexed arbiter);
-    event ArbiterSlashed(address indexed arbiter, uint256 amount, address indexed recipient);
-    event ReputationUpdated(address indexed arbiter, int256 newReputation);
+    event CaseCreated(
+        uint256 indexed caseId,
+        uint256 indexed dealId,
+        address indexed initiator,
+        address[] arbiters
+    );
+    event CaseRecreated(
+        uint256 indexed newCaseId,
+        uint256 indexed parentCaseId,
+        address[] arbiters
+    );
+    event EvidenceSubmitted(
+        uint256 indexed caseId,
+        address indexed party,
+        bytes32 evidenceHash
+    );
+    event VoteCast(
+        uint256 indexed caseId,
+        address indexed arbiter,
+        VoteChoice choice
+    );
+    event CaseDecided(
+        uint256 indexed caseId,
+        VoteChoice outcome,
+        uint256 executionUnlockTime
+    );
+    event CaseExecuted(uint256 indexed caseId, VoteChoice outcome);
+    event PreviousArbitersPenalized(
+        uint256 indexed parentCaseId,
+        uint256 indexed appealCaseId
+    );
 
-    // --- External / State-Changing Functions ---
+    // --- Custom Errors ---
 
-    /**
-     * @notice Selects and assigns a random active arbiter for a specific case.
-     * @param caseId The ID of the case requiring an arbiter.
-     * @return arbiter The address of the assigned arbiter.
-     */
-    function assignRandomCase(uint256 caseId) external returns (address arbiter);
+    error InvalidAddress();
+    error Unauthorized();
+    error InvalidStatus(CaseStatus current, CaseStatus required);
+    error DeadlineNotReached();
+    error DeadlinePassed();
+    error AlreadyVoted();
+    error InvalidChoice();
+    error NotAssignedArbiter();
+    error TieVoteUnresolved();
+    error ExecutionDelayActive();
+    error AlreadyAppealed();
 
-    /**
-     * @notice Directly assigns a specific arbiter to a case (e.g., during appeals).
-     * @param arbiter The address of the arbiter to assign.
-     */
-    function assignCase(address arbiter) external;
+    // --- Immutable / Constants & State Variables ---
 
-    /**
-     * @notice Decrements active case load for an arbiter when a case concludes.
-     * @param arbiter The address of the arbiter finishing a case.
-     */
-    function finishCase(address arbiter) external;
+    function token() external view returns (address);
 
-    /**
-     * @notice Updates the reputation score of an arbiter.
-     * @param arbiter The address of the arbiter.
-     * @param delta The positive or negative score adjustment.
-     */
-    function updateReputation(address arbiter, int256 delta) external;
+    function identityRegister() external view returns (address);
 
-    /**
-     * @notice Slashes an arbiter's stake or collateral.
-     * @param arbiter The address of the arbiter to slash.
-     * @param amount The amount of tokens to slash.
-     * @param recipient The address receiving the slashed tokens.
-     */
-    function slash(
-        address arbiter,
-        uint256 amount,
-        address recipient
-    ) external;
+    function arbitrationRegister() external view returns (address);
+
+    function escrowCore() external view returns (address);
+
+    function INITIAL_ARBITERS() external view returns (uint256);
+
+    function ADDITIONAL_APPEAL_ARBITERS() external view returns (uint256);
+
+    function EVIDENCE_DURATION() external view returns (uint256);
+
+    function VOTING_DURATION() external view returns (uint256);
+
+    function EXECUTION_DELAY() external view returns (uint256);
+
+    function caseCounter() external view returns (uint256);
+
+    function cases(uint256 caseId)
+        external
+        view
+        returns (
+            uint256 dealId,
+            uint256 parentCaseId,
+            bytes32 agreementHash,
+            string memory reason,
+            bytes32 evidenceHashA,
+            bytes32 evidenceHashB,
+            uint256 rewardAmount,
+            CaseStatus status,
+            address initiator,
+            uint256 createdAt,
+            uint256 evidenceDeadline,
+            uint256 votingDeadline,
+            uint256 decidedAt,
+            VoteChoice winningChoice,
+            bool isAppeal,
+            bool appealTriggered
+        );
+
+    function votes(uint256 caseId, address arbiter)
+        external
+        view
+        returns (VoteChoice choice, bool hasVoted);
+
+    function voteCounts(uint256 caseId, VoteChoice choice)
+        external
+        view
+        returns (uint256 count);
+
+    // --- External Functions ---
+
+    function createCase(
+        uint256 _dealId,
+        string calldata _reason,
+        bytes32 docAHash,
+        bytes32 docBHash,
+        uint256 rewardAmount
+    ) external returns (uint256 caseId);
+
+    function recreateCase(
+        uint256 _parentCaseId,
+        string calldata _appealReason,
+        uint256 rewardAmount
+    ) external returns (uint256 newCaseId);
+
+    function submitEvidence(uint256 _caseId, bytes32 _evidenceHash) external;
+
+    function startVotingPhase(uint256 _caseId) external;
+
+    function castVote(uint256 _caseId, VoteChoice _choice) external;
+
+    function resolveCase(uint256 _caseId) external;
+
+    function executeCase(uint256 _caseId) external;
 
     // --- View Functions ---
 
-    /**
-     * @notice Checks if an address is an active registered arbiter.
-     * @param arbiter The address to verify.
-     * @return True if the arbiter is active.
-     */
-    function isArbiter(address arbiter) external view returns (bool);
-
-    /**
-     * @notice Gets current reputation score for an arbiter.
-     * @param arbiter The address of the arbiter.
-     * @return The numerical reputation score.
-     */
-    function getReputation(address arbiter) external view returns (int256);
+    function getCaseArbiters(uint256 _caseId)
+        external
+        view
+        returns (address[] memory);
 }

@@ -5,10 +5,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
-
-interface IEscrowCoreSync {
-    function syncPayeeFromRegistry(uint256 dealId) external;
-}
+import {IEscrowCore} from "../interfaces/IEscrowCore.sol";
 
 /**
  * @title AgreementRegistry
@@ -181,7 +178,7 @@ contract AgreementRegistry is EIP712, Ownable {
         }
 
         if (escrowCore != address(0)) {
-            IEscrowCoreSync(escrowCore).syncPayeeFromRegistry(dealId);
+            IEscrowCore(escrowCore).syncPayeeFromRegistry(dealId);
         }
     }
 

@@ -356,9 +356,9 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
             raisor: msg.sender,
             reason: _reason
         });
-
-        uint256 arbitrationFee = deal.totalBalance / 100; // 1% arbitration fee
-
+        uint256 arbitrationFee = deal.totalBalance / 100;
+        deal.totalBalance -= arbitrationFee; // Deduct 1% arbitration fee
+        token.safeTransfer( address(arbiter), arbitrationFee);
         uint256 caseId = arbiter.createCase(_dealId, _reason, docAHash, docBHash, arbitrationFee);
 
         emit DisputeRaised(msg.sender, _dealId, _reason, caseId, arbitrationFee);
@@ -378,7 +378,10 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
             raisor: msg.sender,
             reason: _reason
         });
-        uint256 caseId = arbiter.recreateCase(_caseId, _reason);
+        uint256 arbitrationFee = deal.totalBalance / 100;
+        deal.totalBalance -= arbitrationFee; // Deduct 1% arbitration fee
+        token.safeTransfer( address(arbiter), arbitrationFee);
+        uint256 caseId = arbiter.recreateCase(_caseId, _reason, arbitrationFee); // 1% arbitration fee
 
         emit DisputeReRaised(msg.sender, _dealId, _reason, caseId);
     }

@@ -153,14 +153,12 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     constructor(
         address _token,
         address _identityRegister,
-        address _arbiter,
         address _agreementRegistry,
         address _feeRecipient
     ) Ownable(msg.sender) EIP712("Lexo EscrowCore", "1") {
         if (
             _token == address(0) ||
             _identityRegister == address(0) ||
-            _arbiter == address(0) ||
             _agreementRegistry == address(0) ||
             _feeRecipient == address(0)
         ) {
@@ -168,7 +166,6 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         }
         token = IERC20(_token);
         identityRegister = IIdentityRegister(_identityRegister);
-        arbiter = IArbitrationCourt(_arbiter);
         agreementRegistry = IAgreementRegistry(_agreementRegistry);
         feeRecipient = _feeRecipient;
     }
@@ -180,6 +177,11 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         if (_newFeeRecipient == address(0)) revert InvalidAddress();
         emit FeeRecipientUpdated(feeRecipient, _newFeeRecipient);
         feeRecipient = _newFeeRecipient;
+    }
+
+    function addArbitrator(address _arbiter) external onlyOwner {
+        if (_arbiter == address(0)) revert InvalidAddress();
+        arbiter = IArbitrationCourt(_arbiter);
     }
 
     /**
@@ -253,7 +255,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         }
 
         token.safeTransferFrom(msg.sender, address(this), total);
-        agreementRegistry.submitPayerDocument(currentDealId, _documentHash);
+        agreementRegistry.submitPayerDocument(currentDealId, _documentHash,msg.sender);
 
         emit DealCreated(currentDealId, msg.sender, total);
     }

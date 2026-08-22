@@ -106,7 +106,7 @@ contract AgreementRegistry is EIP712, Ownable {
     /**
      * @notice Submits Document A (the payer's terms) for a deal.
      */
-    function submitPayerDocument(uint256 dealId, bytes32 documentHash)
+    function submitPayerDocument(uint256 dealId, bytes32 documentHash, address payer)
         external
         onlyEscrowCore
     {
@@ -119,9 +119,9 @@ contract AgreementRegistry is EIP712, Ownable {
             payeeSigned: false,
             exists: true
         });
-        dealPayer[dealId] = tx.origin; // Set deal payer to caller origin who initiated createDeal in EscrowCore
+        dealPayer[dealId] = payer; // Set deal payer to caller origin who initiated createDeal in EscrowCore
 
-        emit DocumentSubmitted(dealId, DOC_A, tx.origin, documentHash);
+        emit DocumentSubmitted(dealId, DOC_A, payer, documentHash);
     }
 
     /**
@@ -193,7 +193,6 @@ contract AgreementRegistry is EIP712, Ownable {
 
         delete candidateDocuments[dealId][candidatePayee];
 
-        // Clean up candidatePayees array via swap-and-pop
         address[] storage candidates = candidatePayees[dealId];
         uint256 len = candidates.length;
         for (uint256 i = 0; i < len; i++) {
@@ -203,7 +202,6 @@ contract AgreementRegistry is EIP712, Ownable {
                 break;
             }
         }
-
         emit PayeeAgreementRejected(dealId, candidatePayee);
     }
 

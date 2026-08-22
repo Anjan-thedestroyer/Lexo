@@ -81,7 +81,8 @@ interface IAgreementRegistry {
 
     function submitPayerDocument(
         uint256 dealId,
-        bytes32 documentHash
+        bytes32 documentHash,
+        address payer
     ) external;
 
     function submitPayeeDocument(

@@ -17,55 +17,53 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     address public arbitrationCourt;
 
     uint256 public constant MINIMUM_STAKE = 500 * 1e6; // 500 USDT
-    uint256 public constant UNSTAKE_COOL_DOWN = 7 days;
+    uint64 public constant UNSTAKE_COOL_DOWN = 7 days;
     uint256 public constant MAX_ACTIVE_CASES = 3;
 
     struct Arbitrator {
-        address wallet;             
-        uint256 stake;
-        uint256 activeCases;
-        uint256 reputation;
-        uint256 unstakeRequestedAt;
-        bool active;
-        bool suspended;
+        address wallet;             // Slot 0 (20 bytes)
+        uint64 unstakeRequestedAt;  // Slot 0 (8 bytes)
+        bool active;                // Slot 0 (1 byte)
+        bool suspended;             // Slot 0 (1 byte) -> Total Slot 0: 30 bytes
+        uint256 stake;              // Slot 1 (32 bytes)
+        uint256 activeCases;        // Slot 2 (32 bytes)
+        uint256 reputation;         // Slot 3 (32 bytes)
     }
 
-    // identityHash => Arbitrator details
     mapping(bytes32 => Arbitrator) public arbitrators;
-    
-    // wallet => identityHash lookup for fast access
     mapping(address => bytes32) public arbitratorToIdentity;
 
-    // --- Dynamic Active Pool (O(1) Selection Engine) ---
-    // Contains strictly eligible arbitrator wallets ready for immediate selection
     address[] public eligiblePool;
-    // wallet => (index in eligiblePool + 1). 0 indicates wallet is not in the pool.
     mapping(address => uint256) private eligibleIndex;
 
-    // Master list of all registered wallets (historical & active)
     address[] public arbitratorList;
     mapping(address => uint256) private arbitratorIndex;
 
-    // Nonce incremented on every random selection to guarantee fresh seeds within the same block
     uint256 public selectionNonce;
 
-    // --- Custom Errors ---
-    error Unauthorized();
-    error UserNotVerified();
-    error IdentityAlreadyRegistered();
-    error NotRegistered();
-    error NotEnoughStake();
-    error InvalidAmount();
-    error ActiveCasesPending();
-    error UnstakeAlreadyRequested();
-    error UnstakeNotRequested();
-    error UnstakeCooldownActive();
+    // --- Descriptive Custom Errors ---
+    error CallerNotCourt(address caller, address expectedCourt);
+    error CallerIsOwner();
+    error UserNotVerified(address wallet);
+    error IdentityAlreadyRegistered(bytes32 identityHash, address existingWallet);
+    error WalletAlreadyInUse(address wallet);
+    error ArbitratorNotRegistered(address wallet);
+    error InsufficientStake(uint256 provided, uint256 required);
+    error SlashAmountExceedsStake(uint256 attemptedSlash, uint256 currentStake);
+    error ZeroAmountProvided();
+    error ActiveCasesPending(address wallet, uint256 activeCases);
+    error UnstakeAlreadyRequested(address wallet, uint64 requestedAt);
+    error UnstakeNotRequested(address wallet);
+    error UnstakeCooldownActive(uint64 requestedAt, uint64 readyAt);
     error NotEnoughEligibleArbitrators();
+    error WalletMismatch(address wallet, address recordedWallet);
+    error InvalidTargetWallet(address targetWallet);
+    error IdentityMismatch(bytes32 sourceIdentity, bytes32 targetIdentity);
 
     // --- Events ---
     event ArbitratorAdded(bytes32 indexed identityHash, address indexed wallet, uint256 stake);
     event StakeIncreased(bytes32 indexed identityHash, address indexed wallet, uint256 addedAmount, uint256 newTotalStake);
-    event UnstakeRequested(bytes32 indexed identityHash, address indexed wallet, uint256 timestamp);
+    event UnstakeRequested(bytes32 indexed identityHash, address indexed wallet, uint64 timestamp);
     event UnstakeCompleted(bytes32 indexed identityHash, address indexed wallet, uint256 amountReturned);
     event Slashed(bytes32 indexed identityHash, address indexed wallet, uint256 amount, address indexed recipient);
     event ReputationUpdated(bytes32 indexed identityHash, uint256 newReputation);
@@ -76,12 +74,12 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     event ArbitratorSelected(uint256 indexed caseId, address indexed wallet, uint256 randomIndex, uint256 poolSize);
 
     modifier onlyVerified(address _account) {
-        if (!identityRegister.isVerified(_account)) revert UserNotVerified();
+        if (!identityRegister.isVerified(_account)) revert UserNotVerified(_account);
         _;
     }
 
     modifier onlyCourt() {
-        if (msg.sender != arbitrationCourt) revert Unauthorized();
+        if (msg.sender != arbitrationCourt) revert CallerNotCourt(msg.sender, arbitrationCourt);
         _;
     }
 
@@ -94,16 +92,16 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         arbitrationCourt = _court;
     }
 
-    // --- 1. Add Arbitrator (Enforces 1 Arbitrator Per Identity) ---
+    // --- 1. Add Arbitrator ---
 
     function addArbitrator(uint256 _stake) external onlyVerified(msg.sender) {
-        if (msg.sender == owner()) revert Unauthorized();
-        if (_stake < MINIMUM_STAKE) revert NotEnoughStake();
+        if (msg.sender == owner()) revert CallerIsOwner();
+        if (_stake < MINIMUM_STAKE) revert InsufficientStake(_stake, MINIMUM_STAKE);
 
         bytes32 idHash = identityRegister.getIdentityHashByWallet(msg.sender);
         Arbitrator storage arb = arbitrators[idHash];
         
-        if (arb.active || arb.stake > 0) revert IdentityAlreadyRegistered();
+        if (arb.active || arb.stake > 0) revert IdentityAlreadyRegistered(idHash, arb.wallet);
 
         arb.wallet = msg.sender;
         arb.stake = _stake;
@@ -123,32 +121,29 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     // --- 2. Change Registered Wallet ---
 
     function changeWallet(address _toWallet) external onlyVerified(msg.sender) {
-        if (_toWallet == address(0) || _toWallet == msg.sender) revert InvalidAmount();
-        if (arbitratorToIdentity[_toWallet] != bytes32(0)) revert IdentityAlreadyRegistered();
+        if (_toWallet == address(0) || _toWallet == msg.sender) revert InvalidTargetWallet(_toWallet);
+        if (arbitratorToIdentity[_toWallet] != bytes32(0)) revert WalletAlreadyInUse(_toWallet);
 
         bytes32 idHash = identityRegister.getIdentityHashByWallet(msg.sender);
         bytes32 toIdHash = identityRegister.getIdentityHashByWallet(_toWallet);
 
-        if (idHash == bytes32(0) || idHash != toIdHash) revert Unauthorized();
+        if (idHash == bytes32(0)) revert ArbitratorNotRegistered(msg.sender);
+        if (idHash != toIdHash) revert IdentityMismatch(idHash, toIdHash);
 
         Arbitrator storage arb = arbitrators[idHash];
-        if (arb.wallet != msg.sender || !arb.active) revert Unauthorized();
-        if (arb.activeCases > 0) revert ActiveCasesPending();
+        if (arb.wallet != msg.sender) revert WalletMismatch(msg.sender, arb.wallet);
+        if (arb.activeCases > 0) revert ActiveCasesPending(msg.sender, arb.activeCases);
 
-        // 1. Remove old wallet from active eligible pool
         _removeFromEligiblePool(msg.sender);
 
-        // 2. Update reverse lookup mappings
         delete arbitratorToIdentity[msg.sender];
         arbitratorToIdentity[_toWallet] = idHash;
 
-        // 3. Update master list index
         uint256 index = arbitratorIndex[msg.sender];
         arbitratorList[index] = _toWallet;
         arbitratorIndex[_toWallet] = index;
         delete arbitratorIndex[msg.sender];
 
-        // 4. Update main record and add new wallet to pool if eligible
         arb.wallet = _toWallet;
         _syncEligibility(_toWallet);
 
@@ -158,12 +153,13 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     // --- 3. Increase Stake ---
 
     function increaseStake(uint256 _stake) external onlyVerified(msg.sender) {
-        if (_stake == 0) revert InvalidAmount();
+        if (_stake == 0) revert ZeroAmountProvided();
         
         bytes32 idHash = arbitratorToIdentity[msg.sender];
         Arbitrator storage arb = arbitrators[idHash];
         
-        if (!arb.active || arb.wallet != msg.sender) revert Unauthorized();
+        if (arb.wallet == address(0)) revert ArbitratorNotRegistered(msg.sender);
+        if (arb.wallet != msg.sender) revert WalletMismatch(msg.sender, arb.wallet);
 
         token.safeTransferFrom(msg.sender, address(this), _stake);
         arb.stake += _stake;
@@ -178,25 +174,33 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         bytes32 idHash = arbitratorToIdentity[msg.sender];
         Arbitrator storage arb = arbitrators[idHash];
 
-        if (!arb.active || arb.wallet != msg.sender) revert NotRegistered();
-        if (arb.activeCases > 0) revert ActiveCasesPending();
-        if (arb.unstakeRequestedAt > 0) revert UnstakeAlreadyRequested();
+        if (arb.wallet == address(0)) revert ArbitratorNotRegistered(msg.sender);
+        if (arb.wallet != msg.sender) revert WalletMismatch(msg.sender, arb.wallet);
+        if (arb.activeCases > 0) revert ActiveCasesPending(msg.sender, arb.activeCases);
+        if (arb.unstakeRequestedAt > 0) revert UnstakeAlreadyRequested(msg.sender, arb.unstakeRequestedAt);
 
-        arb.unstakeRequestedAt = block.timestamp;
+        uint64 currentTime = uint64(block.timestamp);
+        arb.unstakeRequestedAt = currentTime;
         arb.active = false;
 
         _removeFromEligiblePool(msg.sender);
-        emit UnstakeRequested(idHash, msg.sender, block.timestamp);
+        emit UnstakeRequested(idHash, msg.sender, currentTime);
     }
 
     function unstake() external nonReentrant {
         bytes32 idHash = arbitratorToIdentity[msg.sender];
         Arbitrator storage arb = arbitrators[idHash];
 
-        if (arb.wallet != msg.sender) revert Unauthorized();
-        if (arb.unstakeRequestedAt == 0) revert UnstakeNotRequested();
-        if (block.timestamp < arb.unstakeRequestedAt + UNSTAKE_COOL_DOWN) revert UnstakeCooldownActive();
-        if (arb.activeCases > 0) revert ActiveCasesPending();
+        if (arb.wallet != msg.sender) revert WalletMismatch(msg.sender, arb.wallet);
+        if (arb.unstakeRequestedAt == 0) revert UnstakeNotRequested(msg.sender);
+        
+        uint64 requestedAt = arb.unstakeRequestedAt;
+        uint64 readyAt = requestedAt + UNSTAKE_COOL_DOWN;
+
+        if (block.timestamp < readyAt) {
+            revert UnstakeCooldownActive(requestedAt, readyAt);
+        }
+        if (arb.activeCases > 0) revert ActiveCasesPending(msg.sender, arb.activeCases);
 
         uint256 payout = arb.stake;
         arb.stake = 0;
@@ -215,8 +219,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
         Arbitrator storage arb = arbitrators[idHash];
         
-        if (arb.wallet == address(0)) revert NotRegistered();
-        if (_amount > arb.stake) revert InvalidAmount();
+        if (arb.wallet == address(0)) revert ArbitratorNotRegistered(_arbitratorWallet);
+        if (_amount > arb.stake) revert SlashAmountExceedsStake(_amount, arb.stake);
 
         arb.stake -= _amount;
         token.safeTransfer(_recipient, _amount);
@@ -227,7 +231,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         }
 
         if (arb.reputation > 0) {
-            uint256 penalty = _amount / 10; // Deduct 10% of slashed amount from reputation
+            // Divide by 1e6 to account for USDT token decimals (10 USDT slashed = -1 Reputation)
+            uint256 penalty = (_amount / 1e6) / 10;
             arb.reputation = arb.reputation > penalty ? arb.reputation - penalty : 0;
             emit ReputationUpdated(idHash, arb.reputation);
         }
@@ -240,8 +245,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         bytes32 idHash = arbitratorToIdentity[msg.sender];
         Arbitrator storage arb = arbitrators[idHash];
         
-        if (arb.wallet != msg.sender) revert Unauthorized();
-        if (arb.stake < MINIMUM_STAKE) revert NotEnoughStake();
+        if (arb.wallet != msg.sender) revert WalletMismatch(msg.sender, arb.wallet);
+        if (arb.stake < MINIMUM_STAKE) revert InsufficientStake(arb.stake, MINIMUM_STAKE);
         
         arb.suspended = false;
         _syncEligibility(msg.sender);
@@ -252,6 +257,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
         Arbitrator storage arb = arbitrators[idHash];
 
+        if (arb.wallet == address(0)) revert ArbitratorNotRegistered(_arbitratorWallet);
+
         if (_delta < 0) {
             uint256 penalty = uint256(-_delta);
             arb.reputation = arb.reputation > penalty ? arb.reputation - penalty : 0;
@@ -261,13 +268,13 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         emit ReputationUpdated(idHash, arb.reputation);
     }
 
-    // --- 7. Case Management (Manual & Finished) ---
+    // --- 7. Case Management ---
 
     function assignCase(address _arbitratorWallet) external onlyCourt {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
         Arbitrator storage arb = arbitrators[idHash];
 
-        if (!isEligible(_arbitratorWallet)) revert Unauthorized();
+        if (!isEligible(_arbitratorWallet)) revert ArbitratorNotRegistered(_arbitratorWallet);
         arb.activeCases += 1;
 
         _syncEligibility(_arbitratorWallet);
@@ -277,6 +284,8 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     function finishCase(address _arbitratorWallet) external onlyCourt {
         bytes32 idHash = arbitratorToIdentity[_arbitratorWallet];
         Arbitrator storage arb = arbitrators[idHash];
+
+        if (arb.wallet == address(0)) revert ArbitratorNotRegistered(_arbitratorWallet);
 
         if (arb.activeCases > 0) {
             arb.activeCases -= 1;
@@ -288,7 +297,6 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
 
     // --- 8. O(1) Instant Random Selection ---
 
-    /// @notice Selects an eligible arbitrator in O(1) constant gas regardless of total registered user count.
     function assignRandomCase(uint256 _caseId) external onlyCourt returns (address selected) {
         uint256 poolSize = eligiblePool.length;
         if (poolSize == 0) revert NotEnoughEligibleArbitrators();
@@ -300,7 +308,6 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         Arbitrator storage arb = arbitrators[idHash];
         arb.activeCases += 1;
 
-        // If capacity reached, automatically remove from selection pool
         _syncEligibility(selected);
 
         emit CaseAssigned(idHash, selected, arb.activeCases);
@@ -327,7 +334,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         return eligiblePool.length;
     }
 
-    // --- Internal Helpers: Dynamic Active Pool (O(1) Swap-and-Pop) ---
+    // --- Internal Helpers ---
 
     function _syncEligibility(address _wallet) internal {
         if (isEligible(_wallet)) {
@@ -340,13 +347,13 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     function _addToEligiblePool(address _wallet) internal {
         if (eligibleIndex[_wallet] == 0) {
             eligiblePool.push(_wallet);
-            eligibleIndex[_wallet] = eligiblePool.length; // 1-based index storage
+            eligibleIndex[_wallet] = eligiblePool.length;
         }
     }
 
     function _removeFromEligiblePool(address _wallet) internal {
         uint256 indexPlusOne = eligibleIndex[_wallet];
-        if (indexPlusOne == 0) return; // Not in pool
+        if (indexPlusOne == 0) return;
 
         uint256 indexToSwap = indexPlusOne - 1;
         uint256 lastIndex = eligiblePool.length - 1;

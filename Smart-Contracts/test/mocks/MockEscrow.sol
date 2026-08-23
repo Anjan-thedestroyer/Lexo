@@ -39,6 +39,10 @@ contract MockEscrowCore {
     mapping(uint256 => mapping(uint256 => Milestone)) public milestones;
     mapping(uint256 => bool) public payeeSynced;
     mapping(address => uint256) public pendingWithdrawals;
+        // --- Resolution Callbacks ---
+
+mapping(uint256 => uint256) public payerPayouts;
+mapping(uint256 => uint256) public payeePayouts;
 
     event PayeeSyncedMock(uint256 indexed dealId, address indexed payee);
     event DealCreatedMock(uint256 indexed dealId, address indexed payer, uint256 totalBalance);
@@ -98,4 +102,15 @@ contract MockEscrowCore {
     function isDealInProgress(uint256 dealId) external view returns (bool) {
         return deals[dealId].status == Status.InProgress;
     }
+
+/// @notice Called by ArbitrationCourt during executeCase to allocate escrowed funds
+function resolveDispute(
+    uint256 dealId,
+    uint256 payerAmount,
+    uint256 payeeAmount
+) external {
+    deals[dealId].status = Status.Resolved;
+    payerPayouts[dealId] = payerAmount;
+    payeePayouts[dealId] = payeeAmount;
+}
 }

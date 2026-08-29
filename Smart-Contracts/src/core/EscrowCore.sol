@@ -214,7 +214,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         uint256[] memory _amount,
         address[] memory _invitedPayees,
         bytes32 _documentHash
-    ) external onlyVerified nonReentrant {
+    ) external onlyVerified nonReentrant returns(uint256) {
         uint256 len = _amount.length;
         if (_description.length != len) revert LengthMismatch();
         if (len == 0 || len > MAX_MILESTONES) revert InvalidMilestoneCount();
@@ -258,6 +258,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         agreementRegistry.submitPayerDocument(currentDealId, _documentHash,msg.sender);
 
         emit DealCreated(currentDealId, msg.sender, total);
+        return currentDealId;
     }
 
     /**

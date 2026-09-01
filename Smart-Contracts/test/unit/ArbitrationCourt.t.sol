@@ -81,10 +81,9 @@ contract ArbitrationCourtTest is Test {
         pool[4] = arbiter5;
         arbitrationRegister.setMockEligiblePool(pool);
 
-        // 4. Set identity verifications
-        identityRegister.setVerified(initiator, true);
-        identityRegister.setVerified(buyer, true);
-        identityRegister.setVerified(seller, true);
+       identityRegister.mockSetVerified(initiator, keccak256(abi.encodePacked(initiator)), true);
+       identityRegister.mockSetVerified(buyer, keccak256(abi.encodePacked(buyer)), true);
+       identityRegister.mockSetVerified(seller, keccak256(abi.encodePacked(seller)), true);
 
         // 5. Fund initiator and grant USDT approvals
         usdt.mint(initiator, 10_000 * 1e6);

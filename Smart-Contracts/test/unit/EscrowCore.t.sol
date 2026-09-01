@@ -5,12 +5,14 @@ import {EscrowCore} from "../../src/core/EscrowCore.sol";
 import {MockUSDT} from "../../src/mocks/MockUSDT.sol";
 import {MockIdentityRegister} from "../mocks/MockIdentity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 interface IAgreementRegistryMock {
     function submitPayerDocument(uint256 dealId, bytes32 docHash, address payer) external;
     function dealPayee(uint256 dealId) external view returns (address);
     function haveBothSigned(uint256 dealId) external view returns (bool);
     function getDocumentHashByDeal(uint256 dealId) external view returns (bytes32, bytes32);
 }
+
 interface IArbitrationCourtMock {
     function createCase(uint256 dealId, string calldata reason, bytes32 docA, bytes32 docB, uint256 fee) external returns (uint256);
     function recreateCase(uint256 caseId, string calldata reason, uint256 fee) external returns (uint256);
@@ -107,9 +109,9 @@ contract EscrowCoreTest is Test {
         // 3. Configure state
         escrow.addArbitrator(address(arbiter));
 
-        // 4. Verify users in identity register
-        identityRegister.setVerified(payer, true);
-        identityRegister.setVerified(payee, true);
+        // 4. Verify users in identity register via mockSetVerified helper
+        identityRegister.mockSetVerified(payer, keccak256(abi.encodePacked(payer)), true);
+        identityRegister.mockSetVerified(payee, keccak256(abi.encodePacked(payee)), true);
 
         // 5. Fund payer with USDT and approve EscrowCore
         token.mint(payer, 10_000 * 1e6);
@@ -421,6 +423,7 @@ contract EscrowCoreTest is Test {
             )
         );
     }
+
     function test_RevertWhen_CreateDealExceedsMaxMilestones() public {
         string[] memory descs = new string[](16);
         uint256[] memory amounts = new uint256[](16);

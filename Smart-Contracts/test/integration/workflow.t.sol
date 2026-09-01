@@ -41,9 +41,11 @@ contract WorkflowIntegrationTest is Test {
     bytes32 public arbiterIdentity = keccak256("ARBITER_ID");
     bytes32 public constant AGREEMENT_HASH = keccak256("TERMS_V1");
 
-    bytes32 private constant ATTESTATION_TYPEHASH = keccak256(
-        "WalletAttestation(address wallet,bytes32 identityHash,uint256 deadline,uint256 nonce)"
+    // Matches IdentityRegister.sol EXACTLY
+    bytes32 private constant REGISTER_IDENTITY_TYPEHASH = keccak256(
+        "RegisterIdentity(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)"
     );
+
     uint256 public constant STAKE_AMOUNT = 500 * 1e6;
     uint256 public constant ESCROW_AMOUNT = 1_000 * 1e6;
 
@@ -87,7 +89,7 @@ contract WorkflowIntegrationTest is Test {
         );
 
         verifierAddress = vm.addr(verifierPrivateKey);
-        identityRegister.addVerifier(verifierAddress);
+        identityRegister.setVerifier(verifierAddress);
 
         agreementRegistry.setEscrowCore(address(escrowCore));
 
@@ -106,6 +108,7 @@ contract WorkflowIntegrationTest is Test {
         vm.prank(payee);
         coreAgreement.signAgreement();
 
+        // Register identities via verifier attestations
         _registerIdentity(client, clientIdentity);
         _registerIdentity(provider, providerIdentity);
         _registerIdentity(arbiter, arbiterIdentity);
@@ -130,50 +133,41 @@ contract WorkflowIntegrationTest is Test {
         payees[0] = payee;
 
         uint256 totalAmount = 1_000 * 1e6;
+
         // 1. Create escrow as payer
         vm.startPrank(payer);
-        token.approve(address(escrowCore),totalAmount);
+        token.approve(address(escrowCore), totalAmount);
         _createEscrow(desc, amounts, payees, DOC_A_HASH);
+
+        // 2. Sign Document A as Payer using AgreementRegistry EIP-712 Digest
         uint8 docA = agreementRegistry.DOC_A();
         bytes32 docADigest = agreementRegistry.getSigningDigest(DEAL_ID, docA);
-
-        // 3. Sign the digest with payer's private key
         bytes memory payerDocASig = _signDigest(payerPrivateKey, docADigest);
-
-        // 4. Submit signature as payer
         agreementRegistry.signDocument(DEAL_ID, docA, payerDocASig);
 
-        // Verify Payer signature state on Doc A
         (, bool payerSigned,,) = agreementRegistry.getDocumentStatus(DEAL_ID, docA);
         assertTrue(payerSigned, "Payer failed to sign Document A");
         vm.stopPrank();
 
+        // 3. Payee submits Document B terms
         vm.startPrank(payee);
         agreementRegistry.submitPayeeDocument(DEAL_ID, DOC_B_HASH);
         vm.stopPrank();
-        
-        // 6. Payer accepts the Payee's Document B via EIP-712 signature
+
+        // 4. Payer accepts Payee's Document B via EIP-712 Candidate Digest
         vm.startPrank(payer);
-        
-        // Get the specific candidate signing digest for Document B
         bytes32 docBDigest = agreementRegistry.getCandidateSigningDigest(DEAL_ID, payee);
-        
-        // Sign the digest with the Payer's private key
         bytes memory payerDocBSig = _signDigest(payerPrivateKey, docBDigest);
-        
-        // Accept the payee agreement (this sets payeeSigned = false, payerSigned = true for DOC_B)
         agreementRegistry.acceptPayeeAgreement(DEAL_ID, payee, payerDocBSig);
-        
+
         assertEq(agreementRegistry.dealPayee(DEAL_ID), payee, "Payee address mismatch");
         (, bool docBPayerSigned,, bool docBExists) = agreementRegistry.getDocumentStatus(DEAL_ID, agreementRegistry.DOC_B());
         assertTrue(docBExists, "Document B should exist");
         assertTrue(docBPayerSigned, "Payer should have signed Document B");
-        
         vm.stopPrank();
 
-        // 7. Payee signs Document A and Document B to complete mutual signing
+        // 5. Payee signs Document A and Document B using AgreementRegistry Digests
         vm.startPrank(payee);
-        
         bytes32 docACompleteDigest = agreementRegistry.getSigningDigest(DEAL_ID, docA);
         bytes memory payeeDocASig = _signDigest(payeePrivateKey, docACompleteDigest);
         agreementRegistry.signDocument(DEAL_ID, docA, payeeDocASig);
@@ -181,10 +175,19 @@ contract WorkflowIntegrationTest is Test {
         bytes32 docBCompleteDigest = agreementRegistry.getSigningDigest(DEAL_ID, agreementRegistry.DOC_B());
         bytes memory payeeDocBSig = _signDigest(payeePrivateKey, docBCompleteDigest);
         agreementRegistry.signDocument(DEAL_ID, agreementRegistry.DOC_B(), payeeDocBSig);
-        
-        // Verify both parties have fully signed both documents
+
         assertTrue(agreementRegistry.haveBothSigned(DEAL_ID), "Both documents must be signed by both parties");
         vm.stopPrank();
+
+        vm.startPrank(payer);
+        escrowCore.approveAndReleaseMilestone(DEAL_ID);
+        escrowCore.approveAndReleaseMilestone(DEAL_ID);
+        vm.stopPrank();
+        
+        vm.startPrank(payee);
+        escrowCore.withdraw();
+        vm.stopPrank();
+
     }
 
     function _createEscrow(
@@ -196,6 +199,7 @@ contract WorkflowIntegrationTest is Test {
         return escrowCore.createDeal(_description, _amount, _invitedPayees, _documentHash);
     }
 
+    /// @dev Helper strictly for IdentityRegister off-chain verifier attestations
     function _signAttestation(
         uint256 pKey,
         address wallet,
@@ -203,8 +207,9 @@ contract WorkflowIntegrationTest is Test {
         uint256 deadline,
         uint256 nonce
     ) internal view returns (bytes memory) {
+        // Encodes in exact order: wallet, identityHash, nonce, deadline
         bytes32 structHash = keccak256(
-            abi.encode(ATTESTATION_TYPEHASH, wallet, identityHash, deadline, nonce)
+            abi.encode(REGISTER_IDENTITY_TYPEHASH, wallet, identityHash, nonce, deadline)
         );
 
         bytes32 domainSeparator = keccak256(
@@ -238,13 +243,15 @@ contract WorkflowIntegrationTest is Test {
         );
 
         vm.prank(wallet);
-        identityRegister.registerWithAttestation(
+        identityRegister.registerIdentityWithAttestation(
+            wallet,
             identityHash,
             deadline,
             signature
         );
     }
 
+    /// @dev Raw ECDSA signature helper for pre-computed EIP-712 digests
     function _signDigest(uint256 pk, bytes32 digest) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);

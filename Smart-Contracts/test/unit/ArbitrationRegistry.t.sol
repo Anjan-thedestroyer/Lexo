@@ -40,19 +40,18 @@ contract ArbitratorRegistryTest is Test {
         registry.setArbitrationCourt(court);
 
         // Verify users via MockIdentityRegister
-        identityRegister.setVerified(arb1, true);
-        identityRegister.setVerified(arb2, true);
-        identityRegister.setVerified(arb3, true);
+        id1 = keccak256(abi.encodePacked(arb1));
+        id2 = keccak256(abi.encodePacked(arb2));
+        id3 = keccak256(abi.encodePacked(arb3));
 
-        // Extract auto-generated identity hashes from MockIdentityRegister
-        id1 = identityRegister.getIdentityHashByWallet(arb1);
-        id2 = identityRegister.getIdentityHashByWallet(arb2);
-        id3 = identityRegister.getIdentityHashByWallet(arb3);
+        identityRegister.mockSetVerified(arb1, id1, true);
+        identityRegister.mockSetVerified(arb2, id2, true);
+        identityRegister.mockSetVerified(arb3, id3, true);
 
         // Mint 10,000 USDT to test arbitrators
-        token.mint(arb1, 10_000);
-        token.mint(arb2, 10_000);
-        token.mint(arb3, 10_000);
+        token.mint(arb1, 10_000 * 1e6);
+        token.mint(arb2, 10_000 * 1e6);
+        token.mint(arb3, 10_000 * 1e6);
 
         // Approve Registry for staking
         vm.prank(arb1);
@@ -99,7 +98,7 @@ contract ArbitratorRegistryTest is Test {
     }
 
     function test_AddArbitrator_RevertsIf_NotVerified() public {
-        token.mint(unverifiedUser, 1_000);
+        token.mint(unverifiedUser, 1_000 * 1e6);
 
         vm.prank(unverifiedUser);
         token.approve(address(registry), MIN_STAKE);
@@ -115,7 +114,8 @@ contract ArbitratorRegistryTest is Test {
     }
 
     function test_AddArbitrator_RevertsIf_Owner() public {
-        identityRegister.setVerified(owner, true);
+        bytes32 ownerId = keccak256(abi.encodePacked(owner));
+        identityRegister.mockSetVerified(owner, ownerId, true);
         token.approve(address(registry), MIN_STAKE);
 
         vm.expectRevert(
@@ -158,7 +158,7 @@ contract ArbitratorRegistryTest is Test {
         _register(arb1, MIN_STAKE);
 
         address newWallet = address(0x888);
-        identityRegister.setCustomIdentity(newWallet, id1);
+        identityRegister.mockSetVerified(newWallet, id1, true);
 
         vm.prank(arb1);
         registry.changeWallet(newWallet);
@@ -186,9 +186,8 @@ contract ArbitratorRegistryTest is Test {
         _register(arb1, MIN_STAKE);
 
         address newWallet = address(0x888);
-        identityRegister.setVerified(newWallet, true);
-
-        bytes32 newId = identityRegister.getIdentityHashByWallet(newWallet);
+        bytes32 newId = keccak256(abi.encodePacked(newWallet));
+        identityRegister.mockSetVerified(newWallet, newId, true);
 
         vm.prank(arb1);
         vm.expectRevert(

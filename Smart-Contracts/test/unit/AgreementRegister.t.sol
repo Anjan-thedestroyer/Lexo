@@ -8,11 +8,17 @@ import {MockEscrowCore} from "../mocks/MockEscrow.sol";
 import {MockUSDT} from "../../src/mocks/MockUSDT.sol";
 
 /* ========================================================================= */
-/*                              MOCK CONTRACTS                               */
+/*                               MOCK CONTRACTS                              */
 /* ========================================================================= */
 
 contract MockIdentityRegister is IIdentityRegister {
+    address public override verifier;
+    address public override coreAgreement;
+
     mapping(address => bool) public verifiedUsers;
+    mapping(address => bytes32) private _walletToIdentity;
+    mapping(bytes32 => bool) private _restricted;
+    mapping(address => uint256) private _nonces;
 
     function setVerified(address user, bool verified) external {
         verifiedUsers[user] = verified;
@@ -22,55 +28,125 @@ contract MockIdentityRegister is IIdentityRegister {
         return verifiedUsers[wallet];
     }
 
-    function verifier() external pure override returns (address) { return address(0); }
-    function coreAgreement() external pure override returns (address) { return address(0); }
-    function MAX_WALLET() external pure override returns (uint256) { return 5; }
-    function walletToIdentity(address) external pure override returns (bytes32) { return bytes32(0); }
-    function restricted(bytes32) external pure override returns (bool) { return false; }
-    function nonces(address) external pure override returns (uint256) { return 0; }
+    function MAX_WALLETS() external pure override returns (uint256) {
+        return 5;
+    }
 
-    function addVerifier(address) external override {}
-    function registerWithAttestation(bytes32, uint256, bytes calldata) external override {}
-    function unverify(bytes32) external override {}
-    function restrict(bytes32) external override {}
-    function unrestrict(bytes32) external override {}
-    function removeWallet(bytes32, address) external override {}
-    function changeRootWallet(bytes32, address) external override {}
+    function walletToIdentity(address wallet) external view override returns (bytes32) {
+        return _walletToIdentity[wallet];
+    }
 
-    function getAttestationDigest(address, bytes32, uint256, uint256) external pure override returns (bytes32) {
+    function restricted(bytes32 identityHash) external view override returns (bool) {
+        return _restricted[identityHash];
+    }
+
+    function nonces(address wallet) external view override returns (uint256) {
+        return _nonces[wallet];
+    }
+
+    function setVerifier(address _verifierAddress) external override {
+        verifier = _verifierAddress;
+        emit VerifierChanged(_verifierAddress);
+    }
+
+    function registerIdentityWithAttestation(
+        address wallet,
+        bytes32 identityHash,
+        uint256,
+        bytes calldata
+    ) external override {
+        _walletToIdentity[wallet] = identityHash;
+        verifiedUsers[wallet] = true;
+        _nonces[wallet]++;
+        emit IdentityRegistered(identityHash, wallet);
+        emit WalletLinked(identityHash, wallet, true);
+    }
+
+    function linkWalletWithAttestation(
+        address wallet,
+        bytes32 identityHash,
+        uint256,
+        bytes calldata
+    ) external override {
+        _walletToIdentity[wallet] = identityHash;
+        _nonces[wallet]++;
+        emit WalletLinked(identityHash, wallet, false);
+    }
+
+    function unverify(bytes32 identityHash) external override {
+        emit Unverified(identityHash);
+    }
+
+    function restrict(bytes32 identityHash) external override {
+        _restricted[identityHash] = true;
+        emit IdentityRestricted(identityHash, true);
+    }
+
+    function unrestrict(bytes32 identityHash) external override {
+        _restricted[identityHash] = false;
+        emit IdentityRestricted(identityHash, false);
+    }
+
+    function removeWallet(bytes32 identityHash, address wallet) external override {
+        delete _walletToIdentity[wallet];
+        emit WalletRemoved(identityHash, wallet);
+    }
+
+    function changeRootWallet(bytes32 identityHash, address newRootWallet) external override {
+        emit RootWalletChanged(identityHash, newRootWallet);
+    }
+
+    function getRegisterIdentityDigest(
+        address,
+        bytes32,
+        uint256,
+        uint256
+    ) external pure override returns (bytes32) {
         return bytes32(0);
     }
 
-    function getIdentity(bytes32)
+    function getLinkWalletDigest(
+        address,
+        bytes32,
+        uint256,
+        uint256
+    ) external pure override returns (bytes32) {
+        return bytes32(0);
+    }
+
+    function getIdentity(bytes32 identityHash)
         external
-        pure
+        view
         override
         returns (
             bool isVerifiedStatus,
             bool isRestrictedStatus,
             address root,
-            address[] memory walletList
+            address[] memory walletList,
+            IIdentityRegister.VerificationStatus status
         )
     {
         address[] memory empty = new address[](0);
-        return (false, false, address(0), empty);
+        return (
+            false,
+            _restricted[identityHash],
+            address(0),
+            empty,
+            IIdentityRegister.VerificationStatus.None
+        );
     }
 
-    function getIdentityHashByWallet(address) external pure override returns (bytes32) {
-        return bytes32(0);
+    function getIdentityHashByWallet(address wallet) external view override returns (bytes32) {
+        return _walletToIdentity[wallet];
     }
 
     function getWallets(bytes32) external pure override returns (address[] memory) {
         return new address[](0);
     }
-
-    function walletCount(bytes32) external pure override returns (uint256) {
-        return 0;
-    }
 }
 
 /* ========================================================================= */
-/*                              TEST SUITE                                   */
+/*                               TEST SUITE                                  */
 /* ========================================================================= */
 
 contract AgreementRegistryTest is Test {
@@ -246,45 +322,45 @@ contract AgreementRegistryTest is Test {
     }
 
     function test_FullSigningFlowAndBothSignedState() public {
-    _submitPayerAndPayeeDoc();
+        _submitPayerAndPayeeDoc();
 
-    uint8 docA = registry.DOC_A();
-    uint8 docB = registry.DOC_B();
+        uint8 docA = registry.DOC_A();
+        uint8 docB = registry.DOC_B();
 
-    // 1. Payer accepts candidate Doc B
-    bytes32 docBDigest = registry.getCandidateSigningDigest(DEAL_ID, payee);
-    bytes memory payerDocBSig = _signDigest(payerPrivateKey, docBDigest);
-    
-    vm.prank(payer);
-    registry.acceptPayeeAgreement(DEAL_ID, payee, payerDocBSig);
+        // 1. Payer accepts candidate Doc B
+        bytes32 docBDigest = registry.getCandidateSigningDigest(DEAL_ID, payee);
+        bytes memory payerDocBSig = _signDigest(payerPrivateKey, docBDigest);
+        
+        vm.prank(payer);
+        registry.acceptPayeeAgreement(DEAL_ID, payee, payerDocBSig);
 
-    // 2. Payer signs Doc A
-    bytes32 docADigest = registry.getSigningDigest(DEAL_ID, docA);
-    bytes memory payerDocASig = _signDigest(payerPrivateKey, docADigest);
-    
-    vm.prank(payer); // Now correctly attaches to signDocument
-    registry.signDocument(DEAL_ID, docA, payerDocASig);
+        // 2. Payer signs Doc A
+        bytes32 docADigest = registry.getSigningDigest(DEAL_ID, docA);
+        bytes memory payerDocASig = _signDigest(payerPrivateKey, docADigest);
+        
+        vm.prank(payer);
+        registry.signDocument(DEAL_ID, docA, payerDocASig);
 
-    // 3. Payee signs Doc A
-    bytes memory payeeDocASig = _signDigest(payeePrivateKey, docADigest);
-    
-    vm.prank(payee);
-    registry.signDocument(DEAL_ID, docA, payeeDocASig);
+        // 3. Payee signs Doc A
+        bytes memory payeeDocASig = _signDigest(payeePrivateKey, docADigest);
+        
+        vm.prank(payee);
+        registry.signDocument(DEAL_ID, docA, payeeDocASig);
 
-    assertFalse(registry.haveBothSigned(DEAL_ID));
+        assertFalse(registry.haveBothSigned(DEAL_ID));
 
-    // 4. Payee signs Doc B -> triggers BothDocumentsSigned
-    bytes32 docBFinalDigest = registry.getSigningDigest(DEAL_ID, docB);
-    bytes memory payeeDocBSig = _signDigest(payeePrivateKey, docBFinalDigest);
+        // 4. Payee signs Doc B -> triggers BothDocumentsSigned
+        bytes32 docBFinalDigest = registry.getSigningDigest(DEAL_ID, docB);
+        bytes memory payeeDocBSig = _signDigest(payeePrivateKey, docBFinalDigest);
 
-    vm.expectEmit(true, true, true, true);
-    emit BothDocumentsSigned(DEAL_ID);
+        vm.expectEmit(true, true, true, true);
+        emit BothDocumentsSigned(DEAL_ID);
 
-    vm.prank(payee);
-    registry.signDocument(DEAL_ID, docB, payeeDocBSig);
+        vm.prank(payee);
+        registry.signDocument(DEAL_ID, docB, payeeDocBSig);
 
-    assertTrue(registry.haveBothSigned(DEAL_ID));
-}
+        assertTrue(registry.haveBothSigned(DEAL_ID));
+    }
 
     function _submitPayerDoc() internal {
         vm.prank(address(escrowCore));

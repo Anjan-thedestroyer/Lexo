@@ -20,6 +20,8 @@ contract WorkflowIntegrationTest is Test {
     EscrowCore public escrowCore;
     ArbitratorRegistry public arbitratorRegistry;
     ArbitrationCourt public arbitrationCourt;
+    uint256 public constant FEE_BPS = 30;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
 
     uint256 internal verifierPrivateKey = 0xA11CE;
     address public verifierAddress;
@@ -41,7 +43,6 @@ contract WorkflowIntegrationTest is Test {
     bytes32 public arbiterIdentity = keccak256("ARBITER_ID");
     bytes32 public constant AGREEMENT_HASH = keccak256("TERMS_V1");
 
-    // Matches IdentityRegister.sol EXACTLY
     bytes32 private constant REGISTER_IDENTITY_TYPEHASH = keccak256(
         "RegisterIdentity(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)"
     );
@@ -88,11 +89,18 @@ contract WorkflowIntegrationTest is Test {
             address(escrowCore)
         );
 
+        // --- Cross-Contract Wire-Ups ---
+        escrowCore.addArbitrator(address(arbitrationCourt));
+
+        // Allow ArbitrationCourt to transfer funds during dispute execution
+        vm.prank(address(escrowCore));
+        token.approve(address(arbitrationCourt), type(uint256).max);
+
         verifierAddress = vm.addr(verifierPrivateKey);
         identityRegister.setVerifier(verifierAddress);
 
         agreementRegistry.setEscrowCore(address(escrowCore));
-
+        
         vm.prank(client);
         coreAgreement.signAgreement();
 
@@ -108,7 +116,6 @@ contract WorkflowIntegrationTest is Test {
         vm.prank(payee);
         coreAgreement.signAgreement();
 
-        // Register identities via verifier attestations
         _registerIdentity(client, clientIdentity);
         _registerIdentity(provider, providerIdentity);
         _registerIdentity(arbiter, arbiterIdentity);
@@ -134,12 +141,10 @@ contract WorkflowIntegrationTest is Test {
 
         uint256 totalAmount = 1_000 * 1e6;
 
-        // 1. Create escrow as payer
         vm.startPrank(payer);
         token.approve(address(escrowCore), totalAmount);
         _createEscrow(desc, amounts, payees, DOC_A_HASH);
 
-        // 2. Sign Document A as Payer using AgreementRegistry EIP-712 Digest
         uint8 docA = agreementRegistry.DOC_A();
         bytes32 docADigest = agreementRegistry.getSigningDigest(DEAL_ID, docA);
         bytes memory payerDocASig = _signDigest(payerPrivateKey, docADigest);
@@ -149,12 +154,10 @@ contract WorkflowIntegrationTest is Test {
         assertTrue(payerSigned, "Payer failed to sign Document A");
         vm.stopPrank();
 
-        // 3. Payee submits Document B terms
         vm.startPrank(payee);
         agreementRegistry.submitPayeeDocument(DEAL_ID, DOC_B_HASH);
         vm.stopPrank();
 
-        // 4. Payer accepts Payee's Document B via EIP-712 Candidate Digest
         vm.startPrank(payer);
         bytes32 docBDigest = agreementRegistry.getCandidateSigningDigest(DEAL_ID, payee);
         bytes memory payerDocBSig = _signDigest(payerPrivateKey, docBDigest);
@@ -166,7 +169,6 @@ contract WorkflowIntegrationTest is Test {
         assertTrue(docBPayerSigned, "Payer should have signed Document B");
         vm.stopPrank();
 
-        // 5. Payee signs Document A and Document B using AgreementRegistry Digests
         vm.startPrank(payee);
         bytes32 docACompleteDigest = agreementRegistry.getSigningDigest(DEAL_ID, docA);
         bytes memory payeeDocASig = _signDigest(payeePrivateKey, docACompleteDigest);
@@ -185,9 +187,171 @@ contract WorkflowIntegrationTest is Test {
         vm.stopPrank();
         
         vm.startPrank(payee);
+        uint256 prevBal = token.balanceOf(payee);
+        uint256 remainingBal = escrowCore.pendingWithdrawals(payee);
+        uint256 fee = (remainingBal * FEE_BPS) / BPS_DENOMINATOR;
         escrowCore.withdraw();
+        uint256 currBal = token.balanceOf(payee);
+        vm.stopPrank();
+        
+        assertEq(currBal, prevBal + (remainingBal - fee), "s");
+    }
+
+    function test_FullWorkflow_Conflict_happy() public {
+        address arbiter2 = address(0x304);
+        address arbiter3 = address(0x305);
+        bytes32 arbiter2Identity = keccak256("ARBITER2_ID");
+        bytes32 arbiter3Identity = keccak256("ARBITER3_ID");
+
+        vm.prank(arbiter2);
+        coreAgreement.signAgreement();
+        _registerIdentity(arbiter2, arbiter2Identity);
+
+        vm.prank(arbiter3);
+        coreAgreement.signAgreement();
+        _registerIdentity(arbiter3, arbiter3Identity);
+
+        token.mint(arbiter, STAKE_AMOUNT);
+        token.mint(arbiter2, STAKE_AMOUNT);
+        token.mint(arbiter3, STAKE_AMOUNT);
+
+        vm.startPrank(arbiter);
+        token.approve(address(arbitratorRegistry), STAKE_AMOUNT);
+        arbitratorRegistry.addArbitrator(STAKE_AMOUNT);
         vm.stopPrank();
 
+        vm.startPrank(arbiter2);
+        token.approve(address(arbitratorRegistry), STAKE_AMOUNT);
+        arbitratorRegistry.addArbitrator(STAKE_AMOUNT);
+        vm.stopPrank();
+
+        vm.startPrank(arbiter3);
+        token.approve(address(arbitratorRegistry), STAKE_AMOUNT);
+        arbitratorRegistry.addArbitrator(STAKE_AMOUNT);
+        vm.stopPrank();
+
+        arbitratorRegistry.setArbitrationCourt(address(arbitrationCourt));
+
+        string[] memory desc = new string[](1);
+        desc[0] = "Single Milestone Project";
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = ESCROW_AMOUNT;
+
+        address[] memory payees = new address[](1);
+        payees[0] = payee;
+
+        vm.startPrank(payer);
+        token.approve(address(escrowCore), ESCROW_AMOUNT);
+        uint256 dealId = _createEscrow(desc, amounts, payees, DOC_A_HASH);
+
+        uint8 docA = agreementRegistry.DOC_A();
+        bytes32 docADigest = agreementRegistry.getSigningDigest(dealId, docA);
+        bytes memory payerDocASig = _signDigest(payerPrivateKey, docADigest);
+        agreementRegistry.signDocument(dealId, docA, payerDocASig);
+        vm.stopPrank();
+
+        vm.startPrank(payee);
+        agreementRegistry.submitPayeeDocument(dealId, DOC_B_HASH);
+        vm.stopPrank();
+
+        vm.startPrank(payer);
+        bytes32 docBDigest = agreementRegistry.getCandidateSigningDigest(dealId, payee);
+        bytes memory payerDocBSig = _signDigest(payerPrivateKey, docBDigest);
+        agreementRegistry.acceptPayeeAgreement(dealId, payee, payerDocBSig);
+        vm.stopPrank();
+
+        vm.startPrank(payee);
+        bytes32 docACompleteDigest = agreementRegistry.getSigningDigest(dealId, docA);
+        bytes memory payeeDocASig = _signDigest(payeePrivateKey, docACompleteDigest);
+        agreementRegistry.signDocument(dealId, docA, payeeDocASig);
+
+        bytes32 docBCompleteDigest = agreementRegistry.getSigningDigest(dealId, agreementRegistry.DOC_B());
+        bytes memory payeeDocBSig = _signDigest(payeePrivateKey, docBCompleteDigest);
+        agreementRegistry.signDocument(dealId, agreementRegistry.DOC_B(), payeeDocBSig);
+        vm.stopPrank();
+
+        uint256 courtBalanceBefore = token.balanceOf(address(arbitrationCourt));
+
+        vm.prank(payer);
+        escrowCore.raiseDispute(dealId, "Deliverable incomplete");
+
+        // Single Fee: 1% Arbitration Fee (10 USDT) transferred to ArbitrationCourt
+        uint256 arbitrationFee = ESCROW_AMOUNT / 100; // 10 USDT
+        uint256 expectedEscrowBalance = ESCROW_AMOUNT - arbitrationFee; // 990 USDT
+
+        assertEq(
+            escrowCore.getDealTotalBalance(dealId),
+            expectedEscrowBalance,
+            "Deal balance in EscrowCore should be 990 USDT after 1% arbitration fee deduction"
+        );
+        assertEq(
+            token.balanceOf(address(arbitrationCourt)) - courtBalanceBefore,
+            arbitrationFee,
+            "Arbitration court should receive exactly 10 USDT (1% fee)"
+        );
+
+        uint256 caseId = 1;
+
+        address[] memory assignedArbiters = arbitrationCourt.getCaseArbiters(caseId);
+        assertEq(assignedArbiters.length, 3, "Should have 3 assigned arbiters");
+
+        for (uint256 i = 0; i < assignedArbiters.length; i++) {
+            vm.prank(assignedArbiters[i]);
+            arbitrationCourt.castVote(caseId, ArbitrationCourt.VoteChoice.Split5050);
+        }
+
+        vm.warp(block.timestamp + arbitrationCourt.VOTING_DURATION() + 1 seconds);
+
+        arbitrationCourt.resolveCase(caseId);
+
+        (,,,,,, ArbitrationCourt.CaseStatus status,,,,, ArbitrationCourt.VoteChoice winningChoice,,) = arbitrationCourt.cases(caseId);
+        assertEq(uint8(status), uint8(ArbitrationCourt.CaseStatus.Decided), "Case should be Decided");
+        assertEq(uint8(winningChoice), uint8(ArbitrationCourt.VoteChoice.Split5050), "Winning choice should be Split5050");
+
+        vm.warp(block.timestamp + arbitrationCourt.EXECUTION_DELAY() + 1 seconds);
+
+        uint256 payerBalanceBefore = token.balanceOf(payer);
+        uint256 payeeBalanceBefore = token.balanceOf(payee);
+
+        arbitrationCourt.executeCase(caseId);
+
+        // 50/50 Split of remaining 990 USDT pool in EscrowCore = 495 USDT each gross
+        uint256 expectedPayerGross = expectedEscrowBalance / 2; // 495 USDT
+        uint256 expectedPayeeGross = expectedEscrowBalance - expectedPayerGross; // 495 USDT
+
+        // EscrowCore applies protocolFeeBps (100 BPS = 1%) during resolveDispute
+        uint256 protocolFeePayer = (expectedPayerGross * escrowCore.protocolFeeBps()) / BPS_DENOMINATOR; // 4.95 USDT
+        uint256 protocolFeePayee = (expectedPayeeGross * escrowCore.protocolFeeBps()) / BPS_DENOMINATOR; // 4.95 USDT
+
+        uint256 expectedPayerPending = expectedPayerGross - protocolFeePayer; // 490.05 USDT
+        uint256 expectedPayeePending = expectedPayeeGross - protocolFeePayee; // 490.05 USDT
+
+        assertEq(
+            escrowCore.pendingWithdrawals(payer),
+            expectedPayerPending,
+            "Payer pending withdrawal should be 490.05 USDT"
+        );
+        assertEq(
+            escrowCore.pendingWithdrawals(payee),
+            expectedPayeePending,
+            "Payee pending withdrawal should be 490.05 USDT"
+        );
+
+        vm.prank(payer);
+        escrowCore.withdraw();
+
+        vm.prank(payee);
+        escrowCore.withdraw();
+
+        // EscrowCore.withdraw() applies FEE_BPS (30 BPS = 0.3%) withdrawal fee
+        uint256 payerWithdrawalFee = (expectedPayerPending * escrowCore.FEE_BPS()) / BPS_DENOMINATOR;
+        uint256 payeeWithdrawalFee = (expectedPayeePending * escrowCore.FEE_BPS()) / BPS_DENOMINATOR;
+
+        uint256 expectedPayerNet = expectedPayerPending - payerWithdrawalFee;
+        uint256 expectedPayeeNet = expectedPayeePending - payeeWithdrawalFee;
+
+        assertEq(token.balanceOf(payer), payerBalanceBefore + expectedPayerNet, "Payer receives net refund after withdrawal fee");
+        assertEq(token.balanceOf(payee), payeeBalanceBefore + expectedPayeeNet, "Payee receives net payout after withdrawal fee");
     }
 
     function _createEscrow(
@@ -199,7 +363,6 @@ contract WorkflowIntegrationTest is Test {
         return escrowCore.createDeal(_description, _amount, _invitedPayees, _documentHash);
     }
 
-    /// @dev Helper strictly for IdentityRegister off-chain verifier attestations
     function _signAttestation(
         uint256 pKey,
         address wallet,
@@ -207,7 +370,6 @@ contract WorkflowIntegrationTest is Test {
         uint256 deadline,
         uint256 nonce
     ) internal view returns (bytes memory) {
-        // Encodes in exact order: wallet, identityHash, nonce, deadline
         bytes32 structHash = keccak256(
             abi.encode(REGISTER_IDENTITY_TYPEHASH, wallet, identityHash, nonce, deadline)
         );
@@ -251,7 +413,6 @@ contract WorkflowIntegrationTest is Test {
         );
     }
 
-    /// @dev Raw ECDSA signature helper for pre-computed EIP-712 digests
     function _signDigest(uint256 pk, bytes32 digest) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);

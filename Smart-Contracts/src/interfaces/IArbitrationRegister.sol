@@ -21,6 +21,7 @@ interface IArbitrationRegister {
      * @return arbiter The address of the assigned arbiter.
      */
     function assignRandomCase(uint256 caseId) external returns (address arbiter);
+    function assignRandomArbiters(uint256 caseId, uint256 count) external returns (address[] memory arbiters);
 
     /**
      * @notice Directly assigns a specific arbiter to a case (e.g., during appeals).

@@ -1,0 +1,212 @@
+{
+  "abi": [
+    {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "_agreementHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "agreementHash",
+      "inputs": [],
+      "outputs": [{ "name": "", "type": "bytes32", "internalType": "bytes32" }],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "hasSignedAgreement",
+      "inputs": [
+        { "name": "_user", "type": "address", "internalType": "address" }
+      ],
+      "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "publishedAt",
+      "inputs": [],
+      "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "signAgreement",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "signedAt",
+      "inputs": [{ "name": "", "type": "address", "internalType": "address" }],
+      "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "AgreementSigned",
+      "inputs": [
+        {
+          "name": "user",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "timestamp",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    { "type": "error", "name": "AlreadySigned", "inputs": [] },
+    { "type": "error", "name": "InvalidAddress", "inputs": [] },
+    { "type": "error", "name": "InvalidAgreementHash", "inputs": [] },
+    { "type": "error", "name": "UserNotVerified", "inputs": [] }
+  ],
+  "bytecode": {
+    "object": "0x60c034607757601f61026b38819003918201601f19168301916001600160401b03831184841017607b578084926020946040528339810103126077575180156068576080524260a0526040516101db9081610090823960805181610182015260a0518160d20152f35b63042de95560e31b5f5260045ffd5b5f80fd5b634e487b7160e01b5f52604160045260245ffdfe6080806040526004361015610012575f80fd5b5f3560e01c9081630ab55d0b1461016d5750806311d1163614610130578063325f086f146100f5578063be5da0b4146100bb5763c939329b14610053575f80fd5b346100b7575f3660031901126100b757335f525f60205260405f20546100a857335f525f6020524260405f205542337f85b07a55c2fef3e62ccecbfc91a6a21141c10f09b72eb84b026900e814a4c5045f80a3005b63585eb56560e11b5f5260045ffd5b5f80fd5b346100b7575f3660031901126100b75760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346100b75760203660031901126100b7576004356001600160a01b038116908190036100b7575f525f602052602060405f2054604051908152f35b346100b75760203660031901126100b7576004356001600160a01b038116908190036100b7575f525f602052602060405f20541515604051908152f35b346100b7575f3660031901126100b7576020907f00000000000000000000000000000000000000000000000000000000000000008152f3fea2646970667358221220dcaabc63894a688233b31eddcad44dbe28ec5349ab865c5ead28a1975d763b5f64736f6c634300081e0033",
+    "sourceMap": "59:1034:27:-:0;;;;;;;;;;;;;-1:-1:-1;;59:1034:27;;;;-1:-1:-1;;;;;59:1034:27;;;;;;;;;;;;;;;;;;;;;;;;507:28;;503:88;;601:30;;655:15;641:29;;59:1034;;;;;;;;601:30;59:1034;;;;;641:29;59:1034;;;;;;503:88;558:22;;;-1:-1:-1;558:22:27;;-1:-1:-1;558:22:27;59:1034;-1:-1:-1;59:1034:27;;;;;;-1:-1:-1;59:1034:27;;;;;-1:-1:-1;59:1034:27",
+    "linkReferences": {}
+  },
+  "deployedBytecode": {
+    "object": "0x6080806040526004361015610012575f80fd5b5f3560e01c9081630ab55d0b1461016d5750806311d1163614610130578063325f086f146100f5578063be5da0b4146100bb5763c939329b14610053575f80fd5b346100b7575f3660031901126100b757335f525f60205260405f20546100a857335f525f6020524260405f205542337f85b07a55c2fef3e62ccecbfc91a6a21141c10f09b72eb84b026900e814a4c5045f80a3005b63585eb56560e11b5f5260045ffd5b5f80fd5b346100b7575f3660031901126100b75760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346100b75760203660031901126100b7576004356001600160a01b038116908190036100b7575f525f602052602060405f2054604051908152f35b346100b75760203660031901126100b7576004356001600160a01b038116908190036100b7575f525f602052602060405f20541515604051908152f35b346100b7575f3660031901126100b7576020907f00000000000000000000000000000000000000000000000000000000000000008152f3fea2646970667358221220dcaabc63894a688233b31eddcad44dbe28ec5349ab865c5ead28a1975d763b5f64736f6c634300081e0033",
+    "sourceMap": "59:1034:27:-:0;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;-1:-1:-1;;59:1034:27;;;;741:10;59:1034;;;;;;;;;728:78;;741:10;59:1034;;;;;839:15;59:1034;;;;839:15;741:10;870:78;59:1034;870:78;;59:1034;728:78;780:15;;;59:1034;780:15;59:1034;;780:15;59:1034;;;;;;;;;;-1:-1:-1;;59:1034:27;;;;;;;133:36;59:1034;;;;;;;;;-1:-1:-1;;59:1034:27;;;;;;-1:-1:-1;;;;;59:1034:27;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;-1:-1:-1;;59:1034:27;;;;;;-1:-1:-1;;;;;59:1034:27;;;;;;;;;;;;;;;;;;1064:20;;59:1034;;;;;;;;;;;;-1:-1:-1;;59:1034:27;;;;;89:38;;59:1034;;",
+    "linkReferences": {},
+    "immutableReferences": {
+      "12651": [{ "start": 386, "length": 32 }],
+      "12653": [{ "start": 210, "length": 32 }]
+    }
+  },
+  "methodIdentifiers": {
+    "agreementHash()": "0ab55d0b",
+    "hasSignedAgreement(address)": "11d11636",
+    "publishedAt()": "be5da0b4",
+    "signAgreement()": "c939329b",
+    "signedAt(address)": "325f086f"
+  },
+  "rawMetadata": "{\"compiler\":{\"version\":\"0.8.30+commit.73712a01\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"_agreementHash\",\"type\":\"bytes32\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"AlreadySigned\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidAddress\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidAgreementHash\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"UserNotVerified\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"timestamp\",\"type\":\"uint256\"}],\"name\":\"AgreementSigned\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"agreementHash\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_user\",\"type\":\"address\"}],\"name\":\"hasSignedAgreement\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"publishedAt\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"signAgreement\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"signedAt\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"src/core/CoreAgreement.sol\":\"CoreAgreement\"},\"evmVersion\":\"prague\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[\":@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/\",\":erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/\",\":forge-std/=lib/forge-std/src/\",\":halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/\",\":openzeppelin-contracts/=lib/openzeppelin-contracts/\"],\"viaIR\":true},\"sources\":{\"src/core/CoreAgreement.sol\":{\"keccak256\":\"0x42aa5328079e744c2a5a17d476d56d54c69545ebb7ca42a45fe717e87c5817f6\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://b375884054a3ba56dcddb0f78d427e945606926f3f6b5ea3d261544a56e08da0\",\"dweb:/ipfs/QmYTKcg4tpsKdgjCnevN1AkYkq9Hq8rBUsNaT2wpUAehNU\"]}},\"version\":1}",
+  "metadata": {
+    "compiler": { "version": "0.8.30+commit.73712a01" },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "_agreementHash",
+              "type": "bytes32"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "constructor"
+        },
+        { "inputs": [], "type": "error", "name": "AlreadySigned" },
+        { "inputs": [], "type": "error", "name": "InvalidAddress" },
+        { "inputs": [], "type": "error", "name": "InvalidAgreementHash" },
+        { "inputs": [], "type": "error", "name": "UserNotVerified" },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "user",
+              "type": "address",
+              "indexed": true
+            },
+            {
+              "internalType": "uint256",
+              "name": "timestamp",
+              "type": "uint256",
+              "indexed": true
+            }
+          ],
+          "type": "event",
+          "name": "AgreementSigned",
+          "anonymous": false
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "agreementHash",
+          "outputs": [
+            { "internalType": "bytes32", "name": "", "type": "bytes32" }
+          ]
+        },
+        {
+          "inputs": [
+            { "internalType": "address", "name": "_user", "type": "address" }
+          ],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "hasSignedAgreement",
+          "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "publishedAt",
+          "outputs": [
+            { "internalType": "uint256", "name": "", "type": "uint256" }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function",
+          "name": "signAgreement"
+        },
+        {
+          "inputs": [
+            { "internalType": "address", "name": "", "type": "address" }
+          ],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "signedAt",
+          "outputs": [
+            { "internalType": "uint256", "name": "", "type": "uint256" }
+          ]
+        }
+      ],
+      "devdoc": { "kind": "dev", "methods": {}, "version": 1 },
+      "userdoc": { "kind": "user", "methods": {}, "version": 1 }
+    },
+    "settings": {
+      "remappings": [
+        "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+        "erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/",
+        "forge-std/=lib/forge-std/src/",
+        "halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
+        "openzeppelin-contracts/=lib/openzeppelin-contracts/"
+      ],
+      "optimizer": { "enabled": true, "runs": 200 },
+      "metadata": { "bytecodeHash": "ipfs" },
+      "compilationTarget": { "src/core/CoreAgreement.sol": "CoreAgreement" },
+      "evmVersion": "prague",
+      "libraries": {},
+      "viaIR": true
+    },
+    "sources": {
+      "src/core/CoreAgreement.sol": {
+        "keccak256": "0x42aa5328079e744c2a5a17d476d56d54c69545ebb7ca42a45fe717e87c5817f6",
+        "urls": [
+          "bzz-raw://b375884054a3ba56dcddb0f78d427e945606926f3f6b5ea3d261544a56e08da0",
+          "dweb:/ipfs/QmYTKcg4tpsKdgjCnevN1AkYkq9Hq8rBUsNaT2wpUAehNU"
+        ],
+        "license": "MIT"
+      }
+    },
+    "version": 1
+  },
+  "id": 27
+}

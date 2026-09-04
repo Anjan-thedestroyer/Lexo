@@ -36,6 +36,8 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     uint256 public constant MAX_MILESTONES = 15;
     uint256 public constant FEE_BPS = 30; // 0.3% fee in basis points (30 / 10_000)
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    uint256 public protocolFeeBps = 100;
+
 
     /// @notice EIP-712 Typehash for Cancellation including deadline
     bytes32 public constant CANCEL_DEAL_TYPEHASH =
@@ -59,6 +61,10 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     error InvalidSignature();
     error SignatureExpired();
     error AgreementsNotSigned();
+    error InvalidDocumentHashes();
+    error ArbitrationFeeTooLow();
+    error BalanceMismatch();
+
 
     enum Status {
         InProgress,
@@ -147,6 +153,10 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
 
     modifier onlyAgreementRegistry() {
         if (msg.sender != address(agreementRegistry)) revert NotAuthorized();
+        _;
+    }
+    modifier onlyCourt() {
+        if (msg.sender != address(arbiter)) revert NotAuthorized();
         _;
     }
 
@@ -347,21 +357,39 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
     function raiseDispute(
         uint256 _dealId,
         string calldata _reason
-    ) external onlyVerified {
+    ) external onlyVerified nonReentrant {
         Deal storage deal = deals[_dealId];
-        if (deal.payee != msg.sender && deal.payer != msg.sender)
+        
+        if (msg.sender != deal.payer && msg.sender != deal.payee) {
             revert NotAuthorized();
-        if (deal.status != Status.InProgress) revert InvalidDealStatus();
+        }
+        if (deal.status != Status.InProgress) {
+            revert InvalidDealStatus();
+        }
+
         (bytes32 docAHash, bytes32 docBHash) = agreementRegistry.getDocumentHashByDeal(_dealId);
+        if (docAHash == bytes32(0) || docBHash == bytes32(0)) {
+            revert InvalidDocumentHashes();
+        }
+
+        // 1% fee transferred directly to Arbitration Court
+        uint256 arbitrationFee = deal.totalBalance / 100;
+        if (arbitrationFee == 0) revert ArbitrationFeeTooLow();
+
+        // Reduce deal balance before external transfer (CEI)
+        deal.totalBalance -= arbitrationFee;
         deal.status = Status.Disputed;
+
         disputeLogs[_dealId] = Dispute({
             dealId: _dealId,
             raisor: msg.sender,
             reason: _reason
         });
-        uint256 arbitrationFee = deal.totalBalance / 100;
-        deal.totalBalance -= arbitrationFee; // Deduct 1% arbitration fee
-        token.safeTransfer( address(arbiter), arbitrationFee);
+
+        // Transfer physical USDT to ArbitrationCourt contract
+        token.safeTransfer(address(arbiter), arbitrationFee);
+
+        // Register case on ArbitrationCourt (Court records arbitrationFee under caseId)
         uint256 caseId = arbiter.createCase(_dealId, _reason, docAHash, docBHash, arbitrationFee);
 
         emit DisputeRaised(msg.sender, _dealId, _reason, caseId, arbitrationFee);
@@ -383,7 +411,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         });
         uint256 arbitrationFee = deal.totalBalance / 100;
         deal.totalBalance -= arbitrationFee; // Deduct 1% arbitration fee
-        token.safeTransfer( address(arbiter), arbitrationFee);
+        token.transfer(address(arbiter), arbitrationFee);
         uint256 caseId = arbiter.recreateCase(_caseId, _reason, arbitrationFee); // 1% arbitration fee
 
         emit DisputeReRaised(msg.sender, _dealId, _reason, caseId);
@@ -393,25 +421,26 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
      * @notice Allows arbitration court to resolve a dispute on the REMAINING balance.
      */
     function resolveDispute(
-        uint256 _dealId,
-        uint256 _payerAmount,
-        uint256 _payeeAmount
-    ) external nonReentrant {
-        if (msg.sender != address(arbiter)) revert ArbiterRequired();
+    uint256 _dealId,
+    uint256 _payerAmount,
+    uint256 _payeeAmount
+    ) external onlyCourt nonReentrant {
         Deal storage deal = deals[_dealId];
         if (deal.status != Status.Disputed) revert InvalidDealStatus();
-        if (_payerAmount + _payeeAmount != deal.totalBalance)
-            revert LengthMismatch();
 
-        deal.totalBalance = 0;
+        // MUST match deal.totalBalance (which was already reduced by arbitrationFee in raiseDispute)
+        if (_payerAmount + _payeeAmount != deal.totalBalance) {
+            revert BalanceMismatch();
+        }
+
         deal.status = Status.Resolved;
+        deal.totalBalance = 0;
 
-        if (_payerAmount > 0) {
-            pendingWithdrawals[deal.payer] += _payerAmount;
-        }
-        if (_payeeAmount > 0) {
-            pendingWithdrawals[deal.payee] += _payeeAmount;
-        }
+        uint256 payerFee = (_payerAmount * protocolFeeBps) / 10000;
+        uint256 payeeFee = (_payeeAmount * protocolFeeBps) / 10000;
+
+        pendingWithdrawals[deal.payer] += (_payerAmount - payerFee);
+        pendingWithdrawals[deal.payee] += (_payeeAmount - payeeFee);
 
         emit DisputeResolved(_dealId, _payerAmount, _payeeAmount);
     }
@@ -470,7 +499,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         deal.status = Status.Cancelled;
 
         if (deal.totalBalance > 0) {
-            pendingWithdrawals[deal.payer] += deal.totalBalance;
+            token.safeTransfer(deal.payer, deal.totalBalance);
             deal.totalBalance = 0;
         }
 

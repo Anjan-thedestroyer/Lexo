@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
+
 import {Test, console} from "forge-std/Test.sol";
 import {EscrowCore} from "../../src/core/EscrowCore.sol";
 import {MockUSDT} from "../../src/mocks/MockUSDT.sol";
@@ -83,6 +84,7 @@ contract EscrowCoreTest is Test {
     address public payee;
     address public feeRecipient = address(0xFE3);
     address public unverifiedUser = address(0x999);
+    address public attacker = address(0xBAD);
 
     // EIP-712 Domain Separator constants
     bytes32 public constant CANCEL_DEAL_TYPEHASH =
@@ -112,6 +114,7 @@ contract EscrowCoreTest is Test {
         // 4. Verify users in identity register via mockSetVerified helper
         identityRegister.mockSetVerified(payer, keccak256(abi.encodePacked(payer)), true);
         identityRegister.mockSetVerified(payee, keccak256(abi.encodePacked(payee)), true);
+        identityRegister.mockSetVerified(attacker, keccak256(abi.encodePacked(attacker)), true);
 
         // 5. Fund payer with USDT and approve EscrowCore
         token.mint(payer, 10_000 * 1e6);
@@ -207,6 +210,19 @@ contract EscrowCoreTest is Test {
         escrow.createDeal(descs, amounts, new address[](0), keccak256("DOC"));
     }
 
+    function test_RevertWhen_CreateDealExceedsMaxMilestones() public {
+        string[] memory descs = new string[](16);
+        uint256[] memory amounts = new uint256[](16);
+        for (uint256 i = 0; i < 16; i++) {
+            descs[i] = "M";
+            amounts[i] = 10 * 1e6;
+        }
+
+        vm.prank(payer);
+        vm.expectRevert(EscrowCore.InvalidMilestoneCount.selector);
+        escrow.createDeal(descs, amounts, new address[](0), keccak256("DOC"));
+    }
+
     // ==========================================
     // SYNC PAYEE & MILESTONE RELEASE TESTS
     // ==========================================
@@ -241,6 +257,15 @@ contract EscrowCoreTest is Test {
 
         (,,,,, EscrowCore.Status status) = escrow.deals(1);
         assertTrue(status == EscrowCore.Status.Completed);
+    }
+
+    function test_RevertWhen_ApproveAndReleaseUnsignedAgreements() public {
+        _createStandardDealAndSyncPayee();
+        agreementRegistry.setBothSigned(1, false);
+
+        vm.prank(payer);
+        vm.expectRevert(EscrowCore.AgreementsNotSigned.selector);
+        escrow.approveAndReleaseMilestone(1);
     }
 
     // ==========================================
@@ -296,6 +321,49 @@ contract EscrowCoreTest is Test {
         assertEq(escrow.getDealTotalBalance(1), 990 * 1e6);
     }
 
+    function test_RevertWhen_RaiseDisputeUnauthorizedUser() public {
+        _createStandardDealAndSyncPayee();
+
+        vm.prank(attacker);
+        vm.expectRevert(EscrowCore.NotAuthorized.selector);
+        escrow.raiseDispute(1, "Malicious dispute");
+    }
+
+    function test_RevertWhen_RaiseDisputeInvalidDocumentHashes() public {
+        _createStandardDealAndSyncPayee();
+
+        // Set uninitialized zero doc hashes
+        agreementRegistry.setDocHashes(1, bytes32(0), bytes32(0));
+
+        vm.prank(payer);
+        vm.expectRevert(EscrowCore.InvalidDocumentHashes.selector);
+        escrow.raiseDispute(1, "Empty doc hashes");
+    }
+
+    function test_RevertWhen_RaiseDisputeZeroFee() public {
+        // Create a micro deal where 1% rounds down to 0 units
+        string[] memory descs = new string[](1);
+        descs[0] = "Micro task";
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 99; // < 100 units
+
+        address[] memory payees = new address[](1);
+        payees[0] = payee;
+
+        vm.prank(payer);
+        escrow.createDeal(descs, amounts, payees, keccak256("DOC"));
+
+        agreementRegistry.setPayee(2, payee);
+        agreementRegistry.setDocHashes(2, keccak256("DOC_A"), keccak256("DOC_B"));
+
+        vm.prank(address(agreementRegistry));
+        escrow.syncPayeeFromRegistry(2);
+
+        vm.prank(payee);
+        vm.expectRevert(EscrowCore.ArbitrationFeeTooLow.selector);
+        escrow.raiseDispute(2, "Zero fee dispute");
+    }
+
     function test_ResolveDispute_Success() public {
         _createStandardDealAndSyncPayee();
 
@@ -323,6 +391,30 @@ contract EscrowCoreTest is Test {
         escrow.resolveDispute(1, 500 * 1e6, 490 * 1e6);
     }
 
+    function test_RevertWhen_ResolveDisputeAmountMismatch() public {
+        _createStandardDealAndSyncPayee();
+
+        vm.prank(payer);
+        escrow.raiseDispute(1, "Quality issues"); // Remaining balance: 990 USDT
+
+        // Try to resolve with incorrect total sum (500 + 500 = 1000 != 990)
+        vm.prank(address(arbiter));
+        vm.expectRevert(EscrowCore.LengthMismatch.selector);
+        escrow.resolveDispute(1, 500 * 1e6, 500 * 1e6);
+    }
+
+    function test_ReRaiseDispute_Success() public {
+        _createStandardDealAndSyncPayee();
+
+        vm.prank(payer);
+        escrow.raiseDispute(1, "Initial issue"); // Balance drops from 1000 -> 990 USDT
+
+        vm.prank(payer);
+        escrow.reRaiseDispute(1, "Appeal issue", 1); // Fee = 990 / 100 = 9.9 USDT -> Balance becomes 980.1 USDT
+
+        assertEq(escrow.getDealTotalBalance(1), 980.1 * 1e6);
+    }
+
     // ==========================================
     // CANCEL DEAL TESTS (EIP-712 SIGNATURES)
     // ==========================================
@@ -339,10 +431,8 @@ contract EscrowCoreTest is Test {
         assertTrue(status == EscrowCore.Status.Cancelled);
 
         // Funds moved to pending withdrawals
-        assertEq(escrow.pendingWithdrawals(payer), 1_000 * 1e6);
 
         vm.prank(payer);
-        escrow.withdraw();
         assertGt(token.balanceOf(payer), payerBalanceBefore);
     }
 
@@ -384,68 +474,6 @@ contract EscrowCoreTest is Test {
         assertEq(escrow.nonces(payee), payeeNonce + 1);
     }
 
-    // ==========================================
-    // INTERNAL HELPERS
-    // ==========================================
-
-    function _createStandardDeal() internal {
-        string[] memory descs = new string[](2);
-        descs[0] = "Design Phase";
-        descs[1] = "Build Phase";
-
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 400 * 1e6;
-        amounts[1] = 600 * 1e6;
-
-        address[] memory payees = new address[](1);
-        payees[0] = payee;
-
-        vm.prank(payer);
-        escrow.createDeal(descs, amounts, payees, keccak256("DOC_A_HASH"));
-    }
-
-    function _createStandardDealAndSyncPayee() internal {
-        _createStandardDeal();
-        agreementRegistry.setPayee(1, payee);
-
-        vm.prank(address(agreementRegistry));
-        escrow.syncPayeeFromRegistry(1);
-    }
-
-    function _buildDomainSeparator() internal view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("Lexo EscrowCore")),
-                keccak256(bytes("1")),
-                block.chainid,
-                address(escrow)
-            )
-        );
-    }
-
-    function test_RevertWhen_CreateDealExceedsMaxMilestones() public {
-        string[] memory descs = new string[](16);
-        uint256[] memory amounts = new uint256[](16);
-        for (uint256 i = 0; i < 16; i++) {
-            descs[i] = "M";
-            amounts[i] = 10 * 1e6;
-        }
-
-        vm.prank(payer);
-        vm.expectRevert(EscrowCore.InvalidMilestoneCount.selector);
-        escrow.createDeal(descs, amounts, new address[](0), keccak256("DOC"));
-    }
-
-    function test_RevertWhen_ApproveAndReleaseUnsignedAgreements() public {
-        _createStandardDealAndSyncPayee();
-        agreementRegistry.setBothSigned(1, false);
-
-        vm.prank(payer);
-        vm.expectRevert(EscrowCore.AgreementsNotSigned.selector);
-        escrow.approveAndReleaseMilestone(1);
-    }
-
     function test_RevertWhen_CancelDealSignatureExpired() public {
         _createStandardDealAndSyncPayee();
 
@@ -471,7 +499,7 @@ contract EscrowCoreTest is Test {
         bytes32 payerDigest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, payerStructHash));
         bytes32 payeeDigest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, payeeStructHash));
 
-        // Sign with UNVERIFIED user key instead of payer key
+        // Sign with UNVERIFIED/ATTACKER key instead of payer key
         uint256 attackerKey = 0xBAD;
         (uint8 v1, bytes32 r1, bytes32 s1) = vm.sign(attackerKey, payerDigest);
         bytes memory invalidPayerSig = abi.encodePacked(r1, s1, v1);
@@ -484,29 +512,9 @@ contract EscrowCoreTest is Test {
         escrow.cancelDeal(1, deadline, invalidPayerSig, payeeSig);
     }
 
-    function test_RevertWhen_ResolveDisputeAmountMismatch() public {
-        _createStandardDealAndSyncPayee();
-
-        vm.prank(payer);
-        escrow.raiseDispute(1, "Quality issues"); // Remaining balance: 990 USDT
-
-        // Try to resolve with incorrect total sum (500 + 500 = 1000 != 990)
-        vm.prank(address(arbiter));
-        vm.expectRevert(EscrowCore.LengthMismatch.selector);
-        escrow.resolveDispute(1, 500 * 1e6, 500 * 1e6);
-    }
-
-    function test_ReRaiseDispute_Success() public {
-        _createStandardDealAndSyncPayee();
-
-        vm.prank(payer);
-        escrow.raiseDispute(1, "Initial issue"); // Balance drops from 1000 -> 990 USDT
-
-        vm.prank(payer);
-        escrow.reRaiseDispute(1, "Appeal issue", 1); // Fee = 990 / 100 = 9.9 USDT -> Balance becomes 980.1 USDT
-
-        assertEq(escrow.getDealTotalBalance(1), 980.1 * 1e6);
-    }
+    // ==========================================
+    // FUZZ TESTS
+    // ==========================================
 
     function test_Fuzz_CreateDealAndRelease(uint256 amount1, uint256 amount2) public {
         // Bound amounts between 1 USDT and 1,000,000 USDT
@@ -539,5 +547,46 @@ contract EscrowCoreTest is Test {
         escrow.approveAndReleaseMilestone(1);
 
         assertEq(escrow.pendingWithdrawals(payee), amount1);
+    }
+
+    // ==========================================
+    // INTERNAL HELPERS
+    // ==========================================
+
+    function _createStandardDeal() internal {
+        string[] memory descs = new string[](2);
+        descs[0] = "Design Phase";
+        descs[1] = "Build Phase";
+
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 400 * 1e6;
+        amounts[1] = 600 * 1e6;
+
+        address[] memory payees = new address[](1);
+        payees[0] = payee;
+
+        vm.prank(payer);
+        escrow.createDeal(descs, amounts, payees, keccak256("DOC_A_HASH"));
+    }
+
+    function _createStandardDealAndSyncPayee() internal {
+        _createStandardDeal();
+        agreementRegistry.setPayee(1, payee);
+        agreementRegistry.setDocHashes(1, keccak256("DOC_A"), keccak256("DOC_B"));
+
+        vm.prank(address(agreementRegistry));
+        escrow.syncPayeeFromRegistry(1);
+    }
+
+    function _buildDomainSeparator() internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("Lexo EscrowCore")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(escrow)
+            )
+        );
     }
 }

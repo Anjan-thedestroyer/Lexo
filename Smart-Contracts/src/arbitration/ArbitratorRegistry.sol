@@ -8,7 +8,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IIdentityRegister} from "../interfaces/IIdentityRegister.sol";
 
 /// @title ArbitratorRegistry
-/// @notice Manages arbitrator staking, unique identity mapping, eligibility, and dynamic O(1) random selection.
+/// @notice Manages arbitrator staking, unique identity mapping, eligibility, and dynamic O(1) random selection without duplicate assignments.
 contract ArbitratorRegistry is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -38,6 +38,9 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
 
     address[] public arbitratorList;
     mapping(address => uint256) private arbitratorIndex;
+
+    // Per-case tracking to guard single-selection calls against duplicates
+    mapping(uint256 => mapping(address => bool)) public isAssignedToCase;
 
     uint256 public selectionNonce;
 
@@ -231,7 +234,6 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         }
 
         if (arb.reputation > 0) {
-            // Divide by 1e6 to account for USDT token decimals (10 USDT slashed = -1 Reputation)
             uint256 penalty = (_amount / 1e6) / 10;
             arb.reputation = arb.reputation > penalty ? arb.reputation - penalty : 0;
             emit ReputationUpdated(idHash, arb.reputation);
@@ -295,14 +297,73 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         emit CaseFinished(idHash, _arbitratorWallet, arb.activeCases);
     }
 
-    // --- 8. O(1) Instant Random Selection ---
+    // --- 8. Random Selection Routines ---
 
+    /**
+     * @notice Selects N unique eligible arbiters for a single case in an O(N) memory shuffle (Fisher-Yates).
+     * @param _caseId The ID of the dispute.
+     * @param _count The number of unique arbiters required.
+     */
+    function assignRandomArbiters(
+        uint256 _caseId,
+        uint256 _count
+    ) external onlyCourt returns (address[] memory selected) {
+        uint256 poolSize = eligiblePool.length;
+        if (poolSize < _count) revert NotEnoughEligibleArbitrators();
+
+        selected = new address[](_count);
+        address[] memory poolCopy = new address[](poolSize);
+
+        for (uint256 i = 0; i < poolSize; i++) {
+            poolCopy[i] = eligiblePool[i];
+        }
+
+        for (uint256 i = 0; i < _count; i++) {
+            uint256 remaining = poolSize - i;
+            uint256 randomIndex = _pseudoRandom(_caseId + i) % remaining;
+
+            address choice = poolCopy[randomIndex];
+            selected[i] = choice;
+            isAssignedToCase[_caseId][choice] = true;
+
+            // Swap chosen element with last unpicked element in poolCopy
+            poolCopy[randomIndex] = poolCopy[remaining - 1];
+
+            bytes32 idHash = arbitratorToIdentity[choice];
+            Arbitrator storage arb = arbitrators[idHash];
+            arb.activeCases += 1;
+
+            _syncEligibility(choice);
+
+            emit CaseAssigned(idHash, choice, arb.activeCases);
+            emit ArbitratorSelected(_caseId, choice, randomIndex, poolSize);
+        }
+    }
+
+    /**
+     * @notice Single random selection call with explicit deduplication check per case.
+     */
     function assignRandomCase(uint256 _caseId) external onlyCourt returns (address selected) {
         uint256 poolSize = eligiblePool.length;
         if (poolSize == 0) revert NotEnoughEligibleArbitrators();
 
-        uint256 randomIndex = _pseudoRandom(_caseId) % poolSize;
-        selected = eligiblePool[randomIndex];
+        uint256 seed = _pseudoRandom(_caseId);
+        uint256 startIndex = seed % poolSize;
+        bool found = false;
+
+        for (uint256 i = 0; i < poolSize; i++) {
+            uint256 currentIndex = (startIndex + i) % poolSize;
+            address candidate = eligiblePool[currentIndex];
+
+            if (!isAssignedToCase[_caseId][candidate]) {
+                selected = candidate;
+                isAssignedToCase[_caseId][candidate] = true;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) revert NotEnoughEligibleArbitrators();
 
         bytes32 idHash = arbitratorToIdentity[selected];
         Arbitrator storage arb = arbitrators[idHash];
@@ -311,7 +372,7 @@ contract ArbitratorRegistry is Ownable, ReentrancyGuard {
         _syncEligibility(selected);
 
         emit CaseAssigned(idHash, selected, arb.activeCases);
-        emit ArbitratorSelected(_caseId, selected, randomIndex, poolSize);
+        emit ArbitratorSelected(_caseId, selected, startIndex, poolSize);
     }
 
     // --- Views ---

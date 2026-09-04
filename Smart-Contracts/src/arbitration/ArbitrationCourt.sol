@@ -78,7 +78,6 @@ contract ArbitrationCourt is ReentrancyGuard {
     error AlreadyVoted();
     error InvalidChoice();
     error NotAssignedArbiter();
-    error TieVoteUnresolved();
     error ExecutionDelayActive();
     error AlreadyAppealed();
 
@@ -136,10 +135,6 @@ contract ArbitrationCourt is ReentrancyGuard {
     ) external returns (uint256 caseId) {
         if (_docAHash == bytes32(0) || _docBHash == bytes32(0)) revert InvalidAddress();
 
-        if (_arbitrationFee > 0) {
-            token.safeTransferFrom(msg.sender, address(this), _arbitrationFee);
-        }
-
         caseId = ++caseCounter;
         Case storage c = cases[caseId];
 
@@ -153,10 +148,8 @@ contract ArbitrationCourt is ReentrancyGuard {
         c.status = CaseStatus.Voting;
         c.votingDeadline = block.timestamp + VOTING_DURATION;
 
-        for (uint256 i = 0; i < INITIAL_ARBITERS; i++) {
-            address selected = arbitrationRegister.assignRandomCase(caseId);
-            c.arbiters.push(selected);
-        }
+        // Batch unique arbiter assignment without replacement
+        c.arbiters = arbitrationRegister.assignRandomArbiters(caseId, INITIAL_ARBITERS);
 
         emit CaseCreated(caseId, _dealId, msg.sender, _docAHash, _docBHash, c.arbiters);
     }
@@ -193,16 +186,8 @@ contract ArbitrationCourt is ReentrancyGuard {
         appeal.status = CaseStatus.Voting;
         appeal.votingDeadline = block.timestamp + VOTING_DURATION;
 
-        for (uint256 i = 0; i < parent.arbiters.length; i++) {
-            address prevArb = parent.arbiters[i];
-            appeal.arbiters.push(prevArb);
-            arbitrationRegister.assignCase(prevArb);
-        }
-
-        for (uint256 i = 0; i < ADDITIONAL_APPEAL_ARBITERS; i++) {
-            address selected = arbitrationRegister.assignRandomCase(newCaseId);
-            appeal.arbiters.push(selected);
-        }
+        // Assign fresh appeal panel (5 unique arbiters)
+        appeal.arbiters = arbitrationRegister.assignRandomArbiters(newCaseId, INITIAL_ARBITERS + ADDITIONAL_APPEAL_ARBITERS);
 
         emit CaseRecreated(newCaseId, _parentCaseId, appeal.arbiters);
     }
@@ -244,7 +229,8 @@ contract ArbitrationCourt is ReentrancyGuard {
         } else if (splitVotes > releaseVotes && splitVotes > refundVotes) {
             outcome = VoteChoice.Split5050;
         } else {
-            revert TieVoteUnresolved();
+            // Default tie-breaker falls back to 50/50 split to unstick cases
+            outcome = VoteChoice.Split5050;
         }
 
         c.winningChoice = outcome;
@@ -259,32 +245,25 @@ contract ArbitrationCourt is ReentrancyGuard {
             if (v.hasVoted && v.choice == outcome) {
                 arbitrationRegister.updateReputation(arb, 10);
             } else if (!v.hasVoted) {
-                // Slash inactive arbiters, sending slashed stake to contract address
                 arbitrationRegister.slash(arb, 20 * 1e6, address(this));
                 arbitrationRegister.updateReputation(arb, -20);
             }
             arbitrationRegister.finishCase(arb);
         }
 
-        // Handle appeal resolution and slash incorrect previous arbiters
+        // Penalize incorrect original arbiters if appeal overturns original ruling
         if (c.isAppeal) {
             Case storage parent = cases[c.parentCaseId];
 
-            // If appeal outcome differs from original ruling, penalize original arbiters
             if (c.winningChoice != parent.winningChoice) {
                 uint256 slashAmountPerArbiter = 50 * 1e6;
                 uint256 totalCompensated = 0;
-
-                // Send slashed tokens directly to the appeal initiator as compensation
                 address compensationRecipient = c.initiator;
 
                 for (uint256 i = 0; i < parent.arbiters.length; i++) {
                     address prevArb = parent.arbiters[i];
-                    
-                    // Slash previous arbiter and send funds directly to appeal initiator
                     arbitrationRegister.slash(prevArb, slashAmountPerArbiter, compensationRecipient);
                     arbitrationRegister.updateReputation(prevArb, -30);
-
                     totalCompensated += slashAmountPerArbiter;
                 }
 
@@ -320,16 +299,34 @@ contract ArbitrationCourt is ReentrancyGuard {
 
         escrowCore.resolveDispute(c.dealId, payerAmount, payeeAmount);
 
+        // Distribute 100% of the arbitration fee pool equally among correct arbiters
         if (c.arbitrationFee > 0 && c.arbiters.length > 0) {
-            uint256 perPerson = c.arbitrationFee / c.arbiters.length;
-
+            uint256 winningCount = 0;
             for (uint256 i = 0; i < c.arbiters.length; i++) {
-                address arb = c.arbiters[i];
-                ArbiterVote memory v = votes[_caseId][arb];
-
+                ArbiterVote memory v = votes[_caseId][c.arbiters[i]];
                 if (v.hasVoted && v.choice == c.winningChoice) {
-                    token.safeTransfer(arb, perPerson);
+                    winningCount++;
                 }
+            }
+
+            if (winningCount > 0) {
+                uint256 perPerson = c.arbitrationFee / winningCount;
+                uint256 totalFeePool = c.arbitrationFee;
+                c.arbitrationFee = 0; // Prevent reentrancy double payouts
+
+                for (uint256 i = 0; i < c.arbiters.length; i++) {
+                    address arb = c.arbiters[i];
+                    ArbiterVote memory v = votes[_caseId][arb];
+
+                    if (v.hasVoted && v.choice == c.winningChoice) {
+                        token.safeTransfer(arb, perPerson);
+                    }
+                }
+            } else {
+                // If no arbiter voted correctly, refund arbitration fee to case initiator
+                uint256 refundAmount = c.arbitrationFee;
+                c.arbitrationFee = 0;
+                token.safeTransfer(c.initiator, refundAmount);
             }
         }
 

@@ -2,10 +2,9 @@ import mongoose from "mongoose";
 
 const passportSchema = new mongoose.Schema(
   {
-    passportHash: {
+    identityHash: {
       type: String,
       required: [true, "Provide passport hash"],
-      unique: true,
       index: true,
     },
 

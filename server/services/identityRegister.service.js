@@ -1,119 +1,141 @@
-import User from "../models/User.js";
-import Passport from "../models/Passport.js";
-import Wallet from "../models/Wallet.js";
-import Verification from "../models/Verification.js";
+import mongoose from "mongoose";
+import User from "../model/User.model.js";
+import PassportModel from "../model/passport.model.js";
+import Wallet from "../model/Wallet.model.js";
+import Verification from "../model/Verification.model.js";
 import creService from "./cre.service.js";
-
+import screenWallet from "./AML.service.js";
 const identityRegisterService = async ({
-    email,
-    phone,
-    password,
-    rootWalletAddress,
-    passportHash,
-    nationality,
-    rarimoProof,
+  email,
+  phone,
+  password,
+  rootWalletAddress,
+  identityHash,
+  nationality,
+  rarimoProof,
 }) => {
-    // 1. Check Passport uniqueness
-    const existingPassport = await Passport.findOne({ passportHash });
-    if (existingPassport) {
-        throw new Error("Passport is already registered");
-    }
+  const normalizedWallet = rootWalletAddress.toLowerCase();
 
-    // 2. Check Root Wallet uniqueness
-    const existingWallet = await Wallet.findOne({
-        address: rootWalletAddress.toLowerCase(),
-        status: "Active",
-    });
-    if (existingWallet) {
-        throw new Error("Wallet is already registered");
-    }
+  // 1. Uniqueness Checks this is disable for now.
+//   const existingPassport = await Passport.findOne({ identityHash });
+//   if (existingPassport) {
+//     throw new Error("Identity is already registered");
+//   }
 
-    // 3. Create User
-    const user = await User.create({
-        email,
-        phone,
-        password,
-        identityVerification: "PROCESSING",
-    });
+  const walletData = await screenWallet(normalizedWallet)
+  const existingWallet = await Wallet.findOne({
+    address: normalizedWallet,
+    status: "Active",
+  });
+  if (existingWallet) {
+    throw new Error("Wallet is already registered");
+  }
 
-    // 4. Create Passport
-    const passport = await Passport.create({
-        passportHash,
-        citizenship: nationality,
-        user: user._id,
-        status: "Requested",
-    });
+  // 2. Atomic Database Insertion via Transaction
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-    // 5. Register first wallet
-    const wallet = await Wallet.create({
-        address: rootWalletAddress.toLowerCase(),
-        user: user._id,
-        status: "Active",
+  let user, passport, wallet, verification;
+
+  try {
+    user = new User({
+      email,
+      phone,
+      password,
+      identityVerification: "PROCESSING",
     });
 
-    // 6. Set root wallet pointers
+    passport = new PassportModel({
+      identityHash,
+      citizenship: nationality,
+      user: user._id,
+      status: "Requested",
+    });
+
+    wallet = new Wallet({
+      address: normalizedWallet,
+      user: user._id,
+      status: "Active",
+    });
+
+    verification = new Verification({
+      user: user._id,
+      passport: passport._id,
+      status: "PROCESSING",
+      rarimoProof,
+    });
+
     user.passport = passport._id;
     user.wallets = [wallet._id];
     user.rootWallet = wallet._id;
-    await user.save();
 
-    // 7. Create verification record
-    const verification = await Verification.create({
-        user: user._id,
-        passport: passport._id,
-        status: "PROCESSING",
-        rarimoProof,
-    });
+    await Promise.all([
+      user.save({ session }),
+      passport.save({ session }),
+      wallet.save({ session }),
+      verification.save({ session }),
+    ]);
 
-    // --------------------------------------------------
-    // 8. Request EIP-712 Attestation Signature from CRE
-    // --------------------------------------------------
+    await session.commitTransaction();
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+
+  // 3. External CRE Verification Phase
+  try {
     const attestation = await creService.startIdentityVerification({
-        verificationId: verification._id,
-        userId: user._id,
-        rootWalletAddress,
-        passportHash,
-        nationality,
-        rarimoProof,
+      verificationId: verification._id.toString(),
+      userId: user._id.toString(),
+      rootWalletAddress: normalizedWallet,
+      identityHash,
+      nationality,
+      rarimoProof,
+      walletData
     });
 
     if (!attestation.approved) {
-        verification.status = "REJECTED";
-        user.identityVerification = "REJECTED";
-        await verification.save();
-        await user.save();
-
-        throw new Error(`CRE Verification Failed: ${attestation.reason || "High risk profile"}`);
+      throw new Error(attestation.reason || "Identity verification rejected by CRE");
     }
 
-    // --------------------------------------------------
-    // 9. Update DB Records to APPROVED
-    // --------------------------------------------------
-    verification.status = "APPROVED";
-    verification.riskScore = attestation.score;
-    await verification.save();
+    // Mark as Approved
+    await Promise.all([
+      Verification.findByIdAndUpdate(verification._id, {
+        status: "APPROVED",
+        riskScore: attestation.score,
+      }),
+      User.findByIdAndUpdate(user._id, {
+        identityVerification: "APPROVED",
+      }),
+      PassportModel.findByIdAndUpdate(passport._id, {
+        status: "Verified",
+      }),
+    ]);
 
-    user.identityVerification = "APPROVED";
-    await user.save();
-
-    passport.status = "Verified";
-    await passport.save();
-
-    // --------------------------------------------------
-    // 10. Return EIP-712 Attestation Payload to Frontend
-    // --------------------------------------------------
     return {
-        userId: user._id,
-        verificationId: verification._id,
-        identityVerification: user.identityVerification,
-        // The client uses these parameters to submit on-chain
-        attestationPayload: {
-            wallet: rootWalletAddress,
-            identityHash: attestation.identityHash,
-            deadline: attestation.deadline,
-            signature: attestation.signature,
-        },
+      userId: user._id,
+      verificationId: verification._id,
+      identityVerification: "APPROVED",
+      attestationPayload: {
+        wallet: normalizedWallet,
+        identityHash: attestation.identityHash,
+        nonce: attestation.nonce,
+        deadline: attestation.deadline,
+        signature: attestation.signature,
+      },
     };
+  } catch (error) {
+    // Sync rejection state across all related records
+    await Promise.all([
+      Verification.findByIdAndUpdate(verification._id, { status: "REJECTED" }),
+      User.findByIdAndUpdate(user._id, { identityVerification: "REJECTED" }),
+      PassportModel.findByIdAndUpdate(passport._id, { status: "Rejected" }),
+    ]);
+
+    throw error;
+  }
 };
 
 export default identityRegisterService;

@@ -55,6 +55,4 @@ const screenWallet = async (walletAddress) => {
 };
 };
 
-export default {
-    screenWallet,
-};
+export default screenWallet;

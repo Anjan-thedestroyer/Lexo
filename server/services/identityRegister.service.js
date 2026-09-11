@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import User from "../model/User.model.js";
+import UserModel from "../model/user.model.js";
 import PassportModel from "../model/passport.model.js";
 import Wallet from "../model/Wallet.model.js";
 import Verification from "../model/Verification.model.js";
@@ -43,7 +43,7 @@ const identityRegisterService = async ({
   let verification;
 
   try {
-    user = new User({
+    user = new UserModel({
       name,
       email,
       phone,
@@ -112,7 +112,7 @@ const identityRegisterService = async ({
           }
         ),
 
-        User.findByIdAndUpdate(user._id, {
+        UserModel.findByIdAndUpdate(user._id, {
           identityVerification: "REJECTED",
         }),
 
@@ -144,7 +144,7 @@ const identityRegisterService = async ({
         }
       ),
 
-      User.findByIdAndUpdate(user._id, {
+      UserModel.findByIdAndUpdate(user._id, {
         identityVerification: "APPROVED",
       }),
 
@@ -187,7 +187,7 @@ const identityRegisterService = async ({
         }
       ),
 
-      User.findByIdAndUpdate(user._id, {
+      UserModel.findByIdAndUpdate(user._id, {
         identityVerification: "REJECTED",
       }),
 

@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import identityRegisterService from "../services/identityRegister.service.js";
+import WalletModel from "../model/Wallet.model.js";
 
 export async function reqAttestationForIdentityRegistration(req, res) {
     try {
@@ -65,4 +66,23 @@ export async function reqAttestationForIdentityRegistration(req, res) {
         });
     }
 }
-
+export async function reqAttestationForWalletAddition(req,res){
+    try {
+        const {walletAddress,userId} = req.body;
+        
+        return res.status(201).json({
+            message: "Wallet added successfully",
+            success: true,
+            data: wallet,
+        });
+    } catch (error) {
+        console.error(
+            "Error requesting attestation for wallet addition:",
+            error
+        );
+        return res.status(500).json({
+            message: error.message || "Internal server error",
+            success: false,
+        });
+    }
+}

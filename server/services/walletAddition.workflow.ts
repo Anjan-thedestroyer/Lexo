@@ -352,13 +352,13 @@ const onHttpTrigger = async (
   const callerAddress =
     normalizedWallet as `0x${string}`;
 
-const nonceResult = evmClient
+ const nonceResult = evmClient
   .callContract(runtime, {
-    call: {
+    call: encodeCallMsg({
       from: callerAddress,
       to: runtime.config.evm.identityRegisterAddress as `0x${string}`,
       data: nonceCallData as `0x${string}`,
-    },
+    }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   })
   .result();

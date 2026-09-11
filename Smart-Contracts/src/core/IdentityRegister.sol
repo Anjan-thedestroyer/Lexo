@@ -64,15 +64,15 @@ contract IdentityRegister is Ownable, EIP712 {
     // EIP-712 TYPEHASHES
     // ============================================================
 
-    bytes32 private constant REGISTER_IDENTITY_TYPEHASH =
-        keccak256(
-            "RegisterIdentity(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)"
-        );
+        bytes32 private constant REGISTER_IDENTITY_TYPEHASH =
+            keccak256(
+                "RegisterIdentity(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)"
+            );
 
-    bytes32 private constant LINK_WALLET_TYPEHASH =
-        keccak256(
-            "LinkWallet(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)"
-        );
+        bytes32 private constant LINK_WALLET_TYPEHASH =
+            keccak256(
+                "LinkWallet(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)"
+            );
 
     // ============================================================
     // EVENTS

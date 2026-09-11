@@ -5,7 +5,9 @@ import Wallet from "../model/Wallet.model.js";
 import Verification from "../model/Verification.model.js";
 import creService from "./cre.service.js";
 import screenWallet from "./AML.service.js";
+
 const identityRegisterService = async ({
+  name,
   email,
   phone,
   password,
@@ -16,29 +18,33 @@ const identityRegisterService = async ({
 }) => {
   const normalizedWallet = rootWalletAddress.toLowerCase();
 
-  // 1. Uniqueness Checks this is disable for now.
-//   const existingPassport = await Passport.findOne({ identityHash });
-//   if (existingPassport) {
-//     throw new Error("Identity is already registered");
-//   }
-
-  const walletData = await screenWallet(normalizedWallet)
+  // 1. Check whether this wallet is already registered.
+  // Do this before running AML/CRE.
   const existingWallet = await Wallet.findOne({
     address: normalizedWallet,
-    status: "Active",
   });
+
   if (existingWallet) {
     throw new Error("Wallet is already registered");
   }
 
-  // 2. Atomic Database Insertion via Transaction
+  // 2. Screen the root wallet with AML.
+  // The wallet address is used for screening but is NOT
+  // stored in the Wallet collection yet.
+  const walletData = await screenWallet(normalizedWallet);
+
+  // 3. Create User, Passport and Verification records.
+  // DO NOT create the Wallet record yet.
   const session = await mongoose.startSession();
   session.startTransaction();
 
-  let user, passport, wallet, verification;
+  let user;
+  let passport;
+  let verification;
 
   try {
     user = new User({
+      name,
       email,
       phone,
       password,
@@ -52,72 +58,108 @@ const identityRegisterService = async ({
       status: "Requested",
     });
 
-    wallet = new Wallet({
-      address: normalizedWallet,
-      user: user._id,
-      status: "Active",
-    });
-
     verification = new Verification({
       user: user._id,
       passport: passport._id,
+      nullifier: identityHash,
       status: "PROCESSING",
-      rarimoProof,
     });
 
     user.passport = passport._id;
-    user.wallets = [wallet._id];
-    user.rootWallet = wallet._id;
 
     await Promise.all([
       user.save({ session }),
       passport.save({ session }),
-      wallet.save({ session }),
       verification.save({ session }),
     ]);
 
     await session.commitTransaction();
-  } catch (err) {
+  } catch (error) {
     await session.abortTransaction();
-    throw err;
+    throw error;
   } finally {
-    session.endSession();
+    await session.endSession();
   }
 
-  // 3. External CRE Verification Phase
+  // 4. Run CRE verification.
   try {
-    const attestation = await creService.startIdentityVerification({
-      verificationId: verification._id.toString(),
-      userId: user._id.toString(),
-      rootWalletAddress: normalizedWallet,
-      identityHash,
-      nationality,
-      rarimoProof,
-      walletData
-    });
+    const attestation =
+      await creService.startIdentityVerification({
+        verificationId: verification._id.toString(),
+        userId: user._id.toString(),
+        rootWalletAddress: normalizedWallet,
+        identityHash,
+        nationality,
+        rarimoProof,
+        walletData,
+      });
 
+    // 5. CRE rejected the identity.
     if (!attestation.approved) {
-      throw new Error(attestation.reason || "Identity verification rejected by CRE");
+      await Promise.all([
+        Verification.findByIdAndUpdate(
+          verification._id,
+          {
+            status: "REJECTED",
+            score: attestation.score ?? null,
+            tier: attestation.tier ?? null,
+            decision: "REJECT",
+            reasons: attestation.reason
+              ? [attestation.reason]
+              : [],
+            llmExplanation: attestation.reason ?? null,
+            shouldIssueAttestation: false,
+          }
+        ),
+
+        User.findByIdAndUpdate(user._id, {
+          identityVerification: "REJECTED",
+        }),
+
+        PassportModel.findByIdAndUpdate(passport._id, {
+          status: "Rejected",
+        }),
+      ]);
+
+      throw new Error(
+        attestation.reason ||
+          "Identity verification rejected by CRE"
+      );
     }
 
-    // Mark as Approved
+    // 6. CRE approved.
+    // The root wallet is STILL not stored yet.
+    // It will be stored after the user successfully
+    // submits the IdentityRegister transaction.
     await Promise.all([
-      Verification.findByIdAndUpdate(verification._id, {
-        status: "APPROVED",
-        riskScore: attestation.score,
-      }),
+      Verification.findByIdAndUpdate(
+        verification._id,
+        {
+          status: "VERIFIED",
+          score: attestation.score ?? null,
+          tier: attestation.tier ?? null,
+          decision: "APPROVE",
+          llmExplanation: attestation.reason ?? null,
+          shouldIssueAttestation: true,
+        }
+      ),
+
       User.findByIdAndUpdate(user._id, {
         identityVerification: "APPROVED",
       }),
+
       PassportModel.findByIdAndUpdate(passport._id, {
         status: "Verified",
       }),
     ]);
 
+    // 7. Return the attestation to the frontend.
     return {
       userId: user._id,
       verificationId: verification._id,
+
       identityVerification: "APPROVED",
+
       attestationPayload: {
         wallet: normalizedWallet,
         identityHash: attestation.identityHash,
@@ -127,11 +169,34 @@ const identityRegisterService = async ({
       },
     };
   } catch (error) {
-    // Sync rejection state across all related records
+    // Don't overwrite the already-recorded CRE rejection.
+    if (
+      error.message ===
+      "Identity verification rejected by CRE"
+    ) {
+      throw error;
+    }
+
+    // Handle unexpected CRE/network/system failures.
     await Promise.all([
-      Verification.findByIdAndUpdate(verification._id, { status: "REJECTED" }),
-      User.findByIdAndUpdate(user._id, { identityVerification: "REJECTED" }),
-      PassportModel.findByIdAndUpdate(passport._id, { status: "Rejected" }),
+      Verification.findByIdAndUpdate(
+        verification._id,
+        {
+          status: "REJECTED",
+          shouldIssueAttestation: false,
+        }
+      ),
+
+      User.findByIdAndUpdate(user._id, {
+        identityVerification: "REJECTED",
+      }),
+
+      PassportModel.findByIdAndUpdate(
+        passport._id,
+        {
+          status: "Rejected",
+        }
+      ),
     ]);
 
     throw error;

@@ -1,4 +1,3 @@
-
 export interface LLMExplanationPayload {
   wallet: string;
   riskScore: number;
@@ -11,7 +10,7 @@ const REQUEST_TIMEOUT_MS = 5000;
 
 /**
  * Keeps only the rule-engine signals.
- * Raw AML data is passed separately so Claude can interpret it.
+ * Raw AML data is passed separately so the AI can interpret it.
  */
 function sanitizeSignals(
   signals: Record<string, any>
@@ -34,7 +33,7 @@ function sanitizeSignals(
 export async function fetchLLMExplanation(
   payload: LLMExplanationPayload
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
 
   const fallbackResponse =
     `Automated verification completed with a risk score of ` +
@@ -70,19 +69,21 @@ Do not change the decision or score.`;
 
   try {
     const response = await fetch(
-      "https://api.anthropic.com/v1/messages",
+      "https://openrouter.ai/api/v1/chat/completions",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
+          model: process.env.OPENROUTER_MODEL || "openrouter/free",
           max_tokens: 200,
-          system: systemPrompt,
           messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
             {
               role: "user",
               content: userPrompt,
@@ -94,23 +95,31 @@ Do not change the decision or score.`;
     );
 
     if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+
+      console.error(
+        `[llmService] OpenRouter request failed [HTTP ${response.status}]:`,
+        errorBody
+      );
+
       return fallbackResponse;
     }
 
     const data = (await response.json()) as {
-      content?: Array<{
-        type: string;
-        text: string;
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
       }>;
     };
 
     return (
-      data.content?.[0]?.text?.trim() ||
+      data.choices?.[0]?.message?.content?.trim() ||
       fallbackResponse
     );
   } catch (error) {
     console.error(
-      "[llmService] Anthropic request failed:",
+      "[llmService] OpenRouter request failed:",
       error
     );
 

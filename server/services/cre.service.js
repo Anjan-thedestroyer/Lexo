@@ -38,18 +38,12 @@ const startIdentityVerification = async ({
           body:
             JSON.stringify({
               verificationId,
-
               userId,
-
               wallet:
                 rootWalletAddress,
-
               identityHash,
-
               nationality,
-
               rarimoProof,
-
               walletData,
             }),
 

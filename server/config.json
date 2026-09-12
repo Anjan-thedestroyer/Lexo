@@ -1,0 +1,12 @@
+{
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia",
+    "identityRegisterAddress": "0x95fA74F92bfBaeBaBDAE9B4336f36589fa914FD4"
+  },
+  "rpcs": [
+    {
+      "chainName": "ethereum-testnet-sepolia",
+      "url": "https://ethereum-sepolia-rpc.publicnode.com"
+    }
+  ]
+}

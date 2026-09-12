@@ -16,9 +16,9 @@ import {
   normalizeWalletSignals,
   runWalletRuleEngine,
   decisionEngine,
-} from "./rules.engine.ts";
+} from "../utils/rules.engine.ts";
 
-import { fetchLLMExplanation } from "./llm.service.ts";
+import { fetchLLMExplanation } from "../utils/llm.service.ts";
 
 // ============================================================
 // CONFIG
@@ -441,10 +441,12 @@ const onHttpTrigger = async (
   // 14. VERIFIER KEY
   // ==========================================================
 
-  const verifierPrivateKey =
-    process.env
-      .CRE_VERIFIER_PRIVATE_KEY;
+  // Fetching the private key securely from CRE secrets context
+  const verifierPrivateKeySecret = await runtime.getSecret({
+    id: "CRE_VERIFIER_PRIVATE_KEY",
+  }).result();
 
+const verifierPrivateKey = verifierPrivateKeySecret.value;
   if (!verifierPrivateKey) {
     throw new Error(
       "CRE_VERIFIER_PRIVATE_KEY is unconfigured in environment"
@@ -546,4 +548,6 @@ export async function main() {
   );
 }
 
-main();
+main().catch((err) => {
+  console.error("[CRE] Workflow failed to initialize in add wallet:", err);
+});

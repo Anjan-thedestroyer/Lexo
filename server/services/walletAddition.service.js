@@ -78,7 +78,7 @@ const addWalletService = async ({
 
   const verification =
     await Verification.findOne({
-      UserModel:
+      user:
         user._id,
 
       status:

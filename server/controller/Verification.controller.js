@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import identityRegisterService from "../services/identityRegister.service.js";
-import WalletModel from "../model/Wallet.model.js";
 
 export async function reqAttestationForIdentityRegistration(req, res) {
     try {

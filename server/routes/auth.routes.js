@@ -1,26 +1,38 @@
 import express from "express";
-
 import {
-  loginController,
-  logoutController,
+    registerController,
+    loginController,
+    logoutController,
+    meController,
 } from "../controller/User.controller.js";
+import authMiddleware from "../middleware/auth.js";
 
 const authRouter = express.Router();
 
-// --------------------------------------------------
-// Authentication
-// --------------------------------------------------
+// POST /api/auth/register
+authRouter.post(
+    "/register",
+    registerController
+);
 
 // POST /api/auth/login
 authRouter.post(
-  "/login",
-  loginController
+    "/login",
+    loginController
+);
+
+// GET /api/auth/me
+authRouter.get(
+    "/me",
+    authMiddleware,
+    meController
 );
 
 // POST /api/auth/logout
 authRouter.post(
-  "/logout",
-  logoutController
+    "/logout",
+    authMiddleware,
+    logoutController
 );
 
 export default authRouter;

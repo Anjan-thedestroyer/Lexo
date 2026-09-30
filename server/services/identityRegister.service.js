@@ -1,5 +1,5 @@
-import UserModel from "../model/user.model.js";
-import PassportModel from "../model/passport.model.js";
+import UserModel from "../model/User.model.js";
+import PassportModel from "../model/Passport.model.js";
 import Wallet from "../model/Wallet.model.js";
 import Verification from "../model/Verification.model.js";
 import creService from "./cre.service.js";

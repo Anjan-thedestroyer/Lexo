@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import EscrowCoreABI from "../abi/EscrowCore.json" with { type: "json" };
 import EscrowModel from "../model/Escrow.model.js";
-import UserModel from "../model/user.model.js";
+import UserModel from "../model/User.model.js";
 
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 const escrowCore = new ethers.Contract(

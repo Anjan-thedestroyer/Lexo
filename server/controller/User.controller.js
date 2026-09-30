@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import UserModel from "../model/user.model.js";
+import UserModel from "../model/User.model.js";
 import generatedAccessToken from "../utils/generatedAccessToken.js";
 import genertedRefreshToken from "../utils/generatedRefreshToken.js";
 
@@ -124,6 +124,125 @@ export async function logoutController(req, res) {
 
     } catch (error) {
         console.error("Logout error:", error);
+
+        return res.status(500).json({
+            message: error.message || "Internal server error",
+            success: false,
+            error: true,
+        });
+    }
+}
+export async function registerController(req, res) {
+    try {
+        const { name, email, phone, password } = req.body;
+
+        // 1. Validate
+        if (!name || !email || !phone || !password) {
+            return res.status(400).json({
+                message: "Name, email, phone and password are required",
+                success: false,
+                error: true,
+            });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({
+                message: "Password must be at least 8 characters",
+                success: false,
+                error: true,
+            });
+        }
+
+        // 2. Normalize email
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // 3. Check existing user
+        const existingUser = await UserModel.findOne({
+            email: normalizedEmail,
+        });
+
+        if (existingUser) {
+            return res.status(409).json({
+                message: "An account with this email already exists",
+                success: false,
+                error: true,
+            });
+        }
+
+        // 4. Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // 5. Create user
+        const user = await UserModel.create({
+            name: name.trim(),
+            email: normalizedEmail,
+            phone: phone.trim(),
+            password: hashedPassword,
+            status: "Active",
+            role: "USER",
+        });
+
+        // 6. Response
+        return res.status(201).json({
+            message: "Account created successfully",
+            success: true,
+            error: false,
+            data: {
+                userId: user._id,
+                name: user.name,
+                email: user.email,
+            },
+        });
+    } catch (error) {
+        console.error("Register error:", error);
+
+        return res.status(500).json({
+            message: error.message || "Internal server error",
+            success: false,
+            error: true,
+        });
+    }
+}
+export async function meController(req, res) {
+    try {
+        const user = await UserModel.findById(req.userId)
+            .select("-password -refresh_token");
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+                success: false,
+                error: true,
+            });
+        }
+
+        if (user.status !== "Active") {
+            return res.status(403).json({
+                message: "Your account is not active",
+                success: false,
+                error: true,
+            });
+        }
+
+        return res.status(200).json({
+            message: "Authenticated",
+            success: true,
+            error: false,
+            data: {
+                userId: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                role: user.role,
+                status: user.status,
+                identityVerification: user.identityVerification,
+                rootWallet: user.rootWallet,
+                wallets: user.wallets,
+                passport: user.passport,
+            },
+        });
+    } catch (error) {
+        console.error("Me controller error:", error);
 
         return res.status(500).json({
             message: error.message || "Internal server error",

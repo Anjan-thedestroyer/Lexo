@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 
-import ArbitratorRegistryABI from "../ABI/ArbitratorRegistry.json" with {
+import ArbitratorRegistryABI from "../abi/ArbitratorRegistry.json" with {
   type: "json",
 };
 

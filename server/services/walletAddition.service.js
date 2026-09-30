@@ -1,4 +1,4 @@
-import UserModel from "../model/user.model.js";
+import UserModel from "../model/User.model.js";
 import Wallet from "../model/Wallet.model.js";
 import Verification from "../model/Verification.model.js";
 

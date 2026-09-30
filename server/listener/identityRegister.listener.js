@@ -1,9 +1,9 @@
 import { ethers } from "ethers";
 
-import UserModel from "../model/user.model.js";
+import UserModel from "../model/User.model.js";
 import WalletModel from "../model/Wallet.model.js";
 import Verification from "../model/Verification.model.js";
-import PassportModel from "../model/passport.model.js";
+import PassportModel from "../model/Passport.model.js";
 
 import IdentityRegisterABI from "../abi/IdentityRegister.json"
     with { type: "json" };

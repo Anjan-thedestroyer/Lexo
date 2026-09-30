@@ -1,11 +1,11 @@
 import { ethers } from "ethers";
-import ArbitratorRegistryABI from "../ABI/ArbitratorRegistry.json" with { type: "json" };
+import ArbitratorRegistryABI from "../abi/ArbitratorRegistry.json" with { type: "json" };
 
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 
 const arbitratorRegistry = new ethers.Contract(
-  process.env.ARBITRATOR_REGISTRY_ADDRESS,
-  ArbitratorRegistryABI,
+  process.env.ARBITER_REGISTRY_ADDRESS,
+  ArbitratorRegistryABI.abi,
   provider
 );
 

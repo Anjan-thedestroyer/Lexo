@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { uploadToPostFile } from "../utils/postfile.js";
+import { uploadToPostFile } from "../utils/postfile.utils.js";
 
 import AgreementRegistryABI from "../abi/AgreementRegistry.json" assert {
   type: "json",
@@ -15,7 +15,7 @@ const provider = new ethers.JsonRpcProvider(
 
 const agreementRegistry = new ethers.Contract(
   process.env.AGREEMENT_REGISTRY_ADDRESS,
-  AgreementRegistryABI,
+  AgreementRegistryABI.abi,
   provider
 );
 

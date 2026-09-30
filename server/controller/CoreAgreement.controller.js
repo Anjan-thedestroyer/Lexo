@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { CoreAgreementModel } from "../model/CoreAgreement.model.js";
 import deployCore from "../helper/CoreAgreement.s.js";
-
+  
 export async function setCoreAgreement(req, res) {
   try {
     const { terms } = req.body;

@@ -5,7 +5,7 @@ const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 
 const arbitrationCourt = new ethers.Contract(
   process.env.ARBITRATION_COURT_ADDRESS,
-  ArbitrationCourtABI,
+  ArbitrationCourtABI.abi,
   provider
 );
 

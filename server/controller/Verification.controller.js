@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import UserModel from "../model/user.model.js";
+import UserModel from "../model/User.model.js";
 import identityRegisterService from "../services/identityRegister.service.js";
 import addWalletService from "../services/walletAddition.service.js";
 

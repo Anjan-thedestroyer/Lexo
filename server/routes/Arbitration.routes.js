@@ -7,7 +7,7 @@ import {
   getVoteCount,
   getCaseCount,
   getArbitrationConstants,
-} from "../controller/Agreement.controller.js";
+} from "../controller/Arbitration.controller.js";
 
 const arbitrationRouter = express.Router();
 

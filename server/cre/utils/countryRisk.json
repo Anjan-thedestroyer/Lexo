@@ -1,0 +1,2015 @@
+{
+  "meta": {
+    "policyVersion": "country-risk-v1",
+    "generatedOn": "2026-09-23",
+    "purpose": "Country-level risk INPUT for Lexo's compliance engine. Scores are Lexo's internal points, not scores issued by FATF, the EU or OFAC.",
+    "usageRules": [
+      "Country risk is one input among several. It must never be the sole basis for rejecting a person.",
+      "Nationality or residence is not evidence of criminal activity.",
+      "Country-level lists are separate from person/wallet sanctions screening (e.g. SDN matches); do not merge them.",
+      "Countries not in this file have no elevated indicator in the three selected sources (score 0, LOW by default). That is an absence of listing, not a finding of low risk."
+    ],
+    "scoring": {
+      "levels": {
+        "LOW": "0-5",
+        "MODERATE": "6-10",
+        "HIGH": "11-20",
+        "VERY_HIGH": "21-30"
+      },
+      "cap": 30,
+      "rules": {
+        "FATF_CALL_FOR_ACTION_COUNTERMEASURES": 18,
+        "FATF_CALL_FOR_ACTION_EDD": 14,
+        "FATF_INCREASED_MONITORING": 6,
+        "EU_HIGH_RISK_CORROBORATING": 2,
+        "EU_HIGH_RISK_INDEPENDENT": 6,
+        "OFAC_COMPREHENSIVE_PROGRAM": 12,
+        "OFAC_BROAD_COUNTRY_PROGRAM": 8,
+        "OFAC_TARGETED_COUNTRY_PROGRAM": 2
+      },
+      "doubleCounting": "EU points are reduced to 2 when FATF already lists the country (EU list is FATF-based); EU-only listings get 6. OFAC points are additive because OFAC sanctions are a separate, non-AML basis."
+    },
+    "sourceRegistry": [
+      {
+        "organization": "FATF",
+        "document": "Jurisdictions under Increased Monitoring - 19 June 2026",
+        "url": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html",
+        "documentDate": "2026-06-19",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "FATF",
+        "document": "High-Risk Jurisdictions subject to a Call for Action - 19 June 2026",
+        "url": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html",
+        "documentDate": "2026-06-19",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "FATF",
+        "document": "High-risk and other monitored jurisdictions (landing page showing June 2026 as latest)",
+        "url": "https://www.fatf-gafi.org/en/topics/high-risk-and-other-monitored-jurisdictions.html",
+        "documentDate": "page lists 2026-06-19 as latest",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "European Commission",
+        "document": "AML/CFT at international level (EU list of high-risk third countries)",
+        "url": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+        "documentDate": "page last updated 2026-01-09; list in force 2026-01-29",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "European Commission",
+        "document": "Delegated Regulation (EU) 2026/46 (Russia)",
+        "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+        "documentDate": "2025-12-03 (published 2026-01-09)",
+        "checked": "not opened; cited from EC page"
+      },
+      {
+        "organization": "European Commission",
+        "document": "Delegated Regulation (EU) 2026/83 (Bolivia, BVI added; 6 removed)",
+        "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083",
+        "documentDate": "2025-12-04 (published 2026-01-09)",
+        "checked": "snippet seen in search; not fully opened"
+      },
+      {
+        "organization": "Malta FIAU (secondary, regulator)",
+        "document": "Summary of Delegated Regulations 2026/46 and 2026/83",
+        "url": "https://fiaumalta.org/news/eu-commission-delegated-acts-on-high-risk-third-countries/",
+        "documentDate": "2026-02-19",
+        "checked": "search snippet"
+      },
+      {
+        "organization": "OFAC",
+        "document": "Sanctions Programs and Country Information (index)",
+        "url": "https://ofac.treasury.gov/sanctions-programs-and-country-information",
+        "documentDate": "program dates through 2026-09-18",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "OFAC",
+        "document": "Where is OFAC's Country List?",
+        "url": "https://ofac.treasury.gov/sanctions-programs-and-country-information/where-is-ofacs-country-list-what-countries-do-i-need-to-worry-about-in-terms-of-us-sanctions",
+        "documentDate": "undated",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "OFAC",
+        "document": "PAARSS program page",
+        "url": "https://ofac.treasury.gov/sanctions-programs-and-country-information/paarss",
+        "documentDate": "updated 2026-08-24",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "OFAC",
+        "document": "Venezuela-Related Sanctions program page",
+        "url": "https://ofac.treasury.gov/sanctions-programs-and-country-information/venezuela-related-sanctions",
+        "documentDate": "updated 2026-09-16",
+        "checked": "2026-09-23"
+      },
+      {
+        "organization": "OFAC",
+        "document": "Ukraine-/Russia-related Sanctions program page",
+        "url": "https://ofac.treasury.gov/sanctions-programs-and-country-information/ukraine-russia-related-sanctions",
+        "documentDate": "updated 2026-05-08",
+        "checked": "2026-09-23"
+      }
+    ],
+    "conflicts": [
+      {
+        "countries": [
+          "DZ",
+          "NA"
+        ],
+        "type": "EU_LISTED_FATF_REMOVED",
+        "detail": "Still on the EU list (in force 2025-08-05) but FATF's 2026-06-19 statement says both are no longer under increased monitoring. Likely EU update lag; scored on the EU listing only (6 pts, independent rule) and flagged."
+      },
+      {
+        "countries": [
+          "AF",
+          "TT",
+          "VU"
+        ],
+        "type": "EU_LISTED_NOT_ON_FATF_LISTS",
+        "detail": "Listed by the EU (2016/2018 entries) but not on either FATF list in June 2026. Scored as EU-independent designations."
+      },
+      {
+        "countries": [
+          "RU"
+        ],
+        "type": "EU_LISTED_NOT_ON_FATF_LISTS",
+        "detail": "Listed by the EU since 2026-01-29 (category for suspended FATF members); FATF lists neither call-for-action nor increased-monitoring for Russia (membership suspended since 2023-02-24)."
+      },
+      {
+        "countries": [
+          "KW",
+          "PG",
+          "BA",
+          "IQ"
+        ],
+        "type": "FATF_LISTED_NOT_ON_EU_LIST",
+        "detail": "On FATF increased monitoring (Kuwait and PNG since Feb 2026; Bosnia and Herzegovina and Iraq since Jun 2026) but absent from the EU list, whose latest amendment on the EC page is dated 2026-01-09. Probably timing; no EU update after that date was found (see unverified items)."
+      },
+      {
+        "countries": [
+          "BG"
+        ],
+        "type": "FATF_LISTED_EU_NOT_APPLICABLE",
+        "detail": "On FATF grey list; the EU high-risk list covers third countries only and Bulgaria is an EU member state."
+      },
+      {
+        "countries": [
+          "SY"
+        ],
+        "type": "OFAC_EASED_VS_FATF_EU_LISTED",
+        "detail": "OFAC ended comprehensive sanctions (effective 2025-07-01; state-sponsor designation rescinded 2026-08-24) and keeps only list-based PAARSS, while FATF and the EU still list Syria (FATF text is from Feb 2023). Several secondary sources still describe Syria as comprehensively sanctioned; OFAC's own page contradicts them."
+      },
+      {
+        "countries": [
+          "VE"
+        ],
+        "type": "OFAC_EASING_VS_FATF_EU_LISTED",
+        "detail": "OFAC's blocking of the Government of Venezuela remains in the legal framework but is heavily eased by general licenses through Sep 2026, while FATF and the EU list Venezuela. Scored on program structure, not on license activity."
+      },
+      {
+        "countries": [
+          "MM"
+        ],
+        "type": "FATF_EDD_NOT_COUNTERMEASURES",
+        "detail": "FATF calls for EDD (not countermeasures) on Myanmar and will consider countermeasures if no progress by Oct 2026; the EU lists Myanmar; OFAC's Burma program treated as targeted. Consistent direction, different intensity."
+      },
+      {
+        "countries": [
+          "CD",
+          "CI",
+          "MC",
+          "BG"
+        ],
+        "type": "FATF_INITIAL_DETERMINATION_PENDING",
+        "detail": "FATF still lists these but has made an initial determination that the action plan is substantially complete; removal depends on an on-site assessment. Score not reduced until FATF delists."
+      }
+    ],
+    "unverified": [
+      "EU list currency: the EC page was last updated 2026-01-09 (list in force from 2026-01-29). No later delegated regulation was found in searches, but this could not be confirmed on an official EC page dated after that.",
+      "OFAC: only the program index, the 'no country list' page, and the PAARSS, Venezuela and Ukraine-/Russia-related pages were read in full. For all other programs the index entry (name and last-updated date) is the evidence; tier assignments for them are Lexo judgments, not OFAC statements.",
+      "OFAC North Korea: 'comprehensive' tier not confirmed on an OFAC page (secondary sources only). OFAC Cuba and Iran: confirmed as broad-based/geographic on OFAC's country-list page.",
+      "OFAC Russia: tier 'broad' not confirmed on the Russian Harmful Foreign Activities program page itself. OFAC Belarus and Burma: tier set to 'targeted' without reading the program pages; manual review recommended.",
+      "OFAC Balkans-Related Sanctions: program exists, but which countries it covers was not verified, so Bosnia and Herzegovina (or any other Balkan state) receives no OFAC points.",
+      "Ukraine: the Ukraine-/Russia-related program targets regions (Crimea etc. appear in the E.O. list, e.g. E.O. 13685) and persons, not Ukraine as a country. Ukraine is NOT scored; sub-national regions have no ISO 3166-1 alpha-2 code, so none are included.",
+      "Global/thematic OFAC programs (counter terrorism, counter narcotics, cyber, Global Magnitsky, TCO, non-proliferation, CAATSA, ICC, etc.) are not country programs and were not used for country scores.",
+      "FATF texts for Syria and Yemen are dated Feb 2023, and for Kuwait and Papua New Guinea Feb 2026 (they deferred reporting); FATF says these may not reflect current status.",
+      "EU 'Russia is in a separate category' detail comes from the Malta FIAU summary of Reg. 2026/46; the EC page itself lists Russia in its table without that explanation.",
+      "Absence of a listing is not evidence of low risk: FATF notes some jurisdictions have not yet been reviewed. Nothing here covers UN, UK, or national sanctions lists."
+    ]
+  },
+  "countries": [
+    {
+      "countryCode": "AF",
+      "country": "Afghanistan",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "EU_HIGH_RISK_INDEPENDENT",
+          "description": "Listed as EU high-risk third country while not on FATF's current lists; scored as an independent EU designation.",
+          "points": 6,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Afghanistan-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/afghanistan-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2016-09-23.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Afghanistan-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2022-02-25",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/afghanistan-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF"
+      ]
+    },
+    {
+      "countryCode": "DZ",
+      "country": "Algeria",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "EU_HIGH_RISK_INDEPENDENT",
+          "description": "Listed as EU high-risk third country while not on FATF's current lists; scored as an independent EU designation.",
+          "points": 6,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "AO",
+      "country": "Angola",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "BY",
+      "country": "Belarus",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Belarus Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/belarus-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Belarus Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-09-17",
+          "verification": "Program listed on OFAC index; tier assigned as targeted because page not read - MANUAL REVIEW recommended",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/belarus-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "BO",
+      "country": "Bolivia",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2026-01-29.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "BA",
+      "country": "Bosnia and Herzegovina",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Newly added June 2026 after high-level political commitment.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "European Commission",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "VG",
+      "country": "British Virgin Islands",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2026-01-29.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "BG",
+      "country": "Bulgaria",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF made initial determination (June 2026) that action plan is substantially complete, on-site assessment pending.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ],
+      "notApplicable": [
+        "European Commission (list covers third countries only)"
+      ]
+    },
+    {
+      "countryCode": "CM",
+      "country": "Cameroon",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF notes all action plan deadlines have expired.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2023-10-18.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "CF",
+      "country": "Central African Republic",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Central African Republic Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/central-african-republic-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Central African Republic Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2023-12-08",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/central-african-republic-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "CU",
+      "country": "Cuba",
+      "score": 12,
+      "level": "HIGH",
+      "reasons": [
+        {
+          "code": "OFAC_COMPREHENSIVE_PROGRAM",
+          "description": "Country-wide/geographically oriented OFAC sanctions program. Program: Cuba Sanctions.",
+          "points": 12,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/cuba-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Cuba Sanctions – tier COMPREHENSIVE. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-09-17",
+          "verification": "OFAC country-list page names Cuba as broad-based, geographically oriented",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/cuba-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "CI",
+      "country": "Côte d'Ivoire",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF made initial determination (June 2026) that action plan is substantially complete, on-site assessment pending.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "KP",
+      "country": "Democratic People's Republic of Korea (North Korea)",
+      "score": 30,
+      "level": "VERY_HIGH",
+      "reasons": [
+        {
+          "code": "FATF_CALL_FOR_ACTION_COUNTERMEASURES",
+          "description": "FATF high-risk jurisdiction subject to a call for action (countermeasures).",
+          "points": 18,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_COMPREHENSIVE_PROGRAM",
+          "description": "Country-wide/geographically oriented OFAC sanctions program. Program: North Korea Sanctions.",
+          "points": 12,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/north-korea-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "HIGH_RISK",
+          "statusDetail": "Call for action – countermeasures (FATF statement of 2026-06-19).",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2016-09-23.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "North Korea Sanctions – tier COMPREHENSIVE. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-03-12",
+          "verification": "Program listed on OFAC index; comprehensive tier NOT confirmed from an OFAC page (secondary sources only)",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/north-korea-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "rawScoreBeforeCap": 32,
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "CD",
+      "country": "Democratic Republic of the Congo",
+      "score": 10,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Democratic Republic of the Congo-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/democratic-republic-of-the-congo-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF made initial determination (June 2026) that action plan is substantially complete, on-site assessment pending.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2023-03-16.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Democratic Republic of the Congo-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-07-10",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/democratic-republic-of-the-congo-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "HT",
+      "country": "Haiti",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF notes all action plan deadlines have expired.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2022-03-13.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "HK",
+      "country": "Hong Kong",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Hong Kong-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/hong-kong-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Hong Kong-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-07-17",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/hong-kong-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "IR",
+      "country": "Iran",
+      "score": 30,
+      "level": "VERY_HIGH",
+      "reasons": [
+        {
+          "code": "FATF_CALL_FOR_ACTION_COUNTERMEASURES",
+          "description": "FATF high-risk jurisdiction subject to a call for action (countermeasures).",
+          "points": 18,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_COMPREHENSIVE_PROGRAM",
+          "description": "Country-wide/geographically oriented OFAC sanctions program. Program: Iran Sanctions.",
+          "points": 12,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/iran-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "HIGH_RISK",
+          "statusDetail": "Call for action – countermeasures (FATF statement of 2026-06-19).",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2016-09-23.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Iran Sanctions – tier COMPREHENSIVE. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-09-17",
+          "verification": "OFAC country-list page names Iran as broad-based, geographically oriented",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/iran-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "rawScoreBeforeCap": 32,
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "IQ",
+      "country": "Iraq",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Iraq-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/iraq-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Newly added June 2026 after high-level political commitment.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Iraq-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2025-07-09",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/iraq-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "KE",
+      "country": "Kenya",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "KW",
+      "country": "Kuwait",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; statement reproduced from February 2026 (Kuwait deferred reporting).",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "European Commission",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "LA",
+      "country": "Lao People's Democratic Republic",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "LB",
+      "country": "Lebanon",
+      "score": 10,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Lebanon-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/lebanon-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Lebanon-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-02-27",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/lebanon-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "LY",
+      "country": "Libya",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Libya Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/libya-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Libya Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-05-28",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/libya-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "ML",
+      "country": "Mali",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Mali-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/mali-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Mali-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-05-28",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/mali-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "MC",
+      "country": "Monaco",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF made initial determination (June 2026) that action plan is substantially complete, on-site assessment pending.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "MM",
+      "country": "Myanmar",
+      "score": 18,
+      "level": "HIGH",
+      "reasons": [
+        {
+          "code": "FATF_CALL_FOR_ACTION_EDD",
+          "description": "FATF high-risk jurisdiction subject to a call for action (enhanced due diligence).",
+          "points": 14,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Burma-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/burma"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "HIGH_RISK",
+          "statusDetail": "Call for action – enhanced due diligence proportionate to risk; FATF says countermeasures will be considered if no further progress by October 2026.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2020-10-01.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Burma-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-05-28",
+          "verification": "Program listed on OFAC index; tier assigned as targeted because page not read",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/burma"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "NA",
+      "country": "Namibia",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "EU_HIGH_RISK_INDEPENDENT",
+          "description": "Listed as EU high-risk third country while not on FATF's current lists; scored as an independent EU designation.",
+          "points": 6,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "NP",
+      "country": "Nepal",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "NI",
+      "country": "Nicaragua",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Nicaragua-related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/nicaragua-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Nicaragua-related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-04-16",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/nicaragua-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "PG",
+      "country": "Papua New Guinea",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; statement reproduced from February 2026 (Papua New Guinea deferred reporting).",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "European Commission",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "RU",
+      "country": "Russian Federation",
+      "score": 14,
+      "level": "HIGH",
+      "reasons": [
+        {
+          "code": "EU_HIGH_RISK_INDEPENDENT",
+          "description": "Listed as EU high-risk third country while not on FATF's current lists; scored as an independent EU designation.",
+          "points": 6,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_BROAD_COUNTRY_PROGRAM",
+          "description": "OFAC country program with government-level blocking and/or broad sectoral measures (not a full embargo). Program: Russian Harmful Foreign Activities Sanctions.",
+          "points": 8,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/russian-harmful-foreign-activities-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2026-01-29. Listed in a separate category for FATF members whose membership is suspended (per Malta FIAU summary of Reg. 2026/46).",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Russian Harmful Foreign Activities Sanctions – tier BROAD. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-09-18",
+          "verification": "Program listed on OFAC index; broad tier NOT confirmed from the program page itself (Ukraine-/Russia-related program page was read; last updated 2026-05-08)",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/russian-harmful-foreign-activities-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF"
+      ]
+    },
+    {
+      "countryCode": "SO",
+      "country": "Somalia",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Somalia Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/somalia-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Somalia Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2023-05-24",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/somalia-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "SS",
+      "country": "South Sudan",
+      "score": 10,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: South Sudan-Related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/south-sudan-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF notes limited progress and expired deadlines.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2022-03-13.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "South Sudan-Related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2023-12-08",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/south-sudan-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "SD",
+      "country": "Sudan",
+      "score": 2,
+      "level": "LOW",
+      "reasons": [
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Sudan and Darfur Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/sudan-and-darfur-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Sudan and Darfur Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-06-26",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/sudan-and-darfur-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "European Commission"
+      ]
+    },
+    {
+      "countryCode": "SY",
+      "country": "Syria",
+      "score": 10,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Promoting Accountability for Assad and Regional Stabilization Sanctions (PAARSS).",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/paarss"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; statement reproduced from February 2023 (FATF unable to conduct on-site visit due to security situation).",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2016-09-23.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Promoting Accountability for Assad and Regional Stabilization Sanctions (PAARSS) – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-08-24",
+          "verification": "Program page read: OFAC no longer maintains comprehensive sanctions on Syria or blocking sanctions on the Government of Syria; list-based only",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/paarss"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "TT",
+      "country": "Trinidad and Tobago",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "EU_HIGH_RISK_INDEPENDENT",
+          "description": "Listed as EU high-risk third country while not on FATF's current lists; scored as an independent EU designation.",
+          "points": 6,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2018-03-06.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "VU",
+      "country": "Vanuatu",
+      "score": 6,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "EU_HIGH_RISK_INDEPENDENT",
+          "description": "Listed as EU high-risk third country while not on FATF's current lists; scored as an independent EU designation.",
+          "points": 6,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2016-09-23.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "FATF",
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "VE",
+      "country": "Venezuela",
+      "score": 16,
+      "level": "HIGH",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_BROAD_COUNTRY_PROGRAM",
+          "description": "OFAC country program with government-level blocking and/or broad sectoral measures (not a full embargo). Program: Venezuela-Related Sanctions.",
+          "points": 8,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/venezuela-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; action plan in progress.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2025-08-05.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Venezuela-Related Sanctions – tier BROAD. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2026-09-16",
+          "verification": "Program page read: E.O. 13884 (blocking Government of Venezuela) still listed; many general licenses issued through Sep 2026",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/venezuela-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    },
+    {
+      "countryCode": "VN",
+      "country": "Vietnam",
+      "score": 8,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; FATF notes all action plan deadlines expired in May 2025.",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2023-10-18.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": [
+        "OFAC"
+      ]
+    },
+    {
+      "countryCode": "YE",
+      "country": "Yemen",
+      "score": 10,
+      "level": "MODERATE",
+      "reasons": [
+        {
+          "code": "FATF_INCREASED_MONITORING",
+          "description": "FATF jurisdiction under increased monitoring ('grey list').",
+          "points": 6,
+          "source": "FATF",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "code": "EU_HIGH_RISK_CORROBORATING",
+          "description": "Listed as EU high-risk third country; EU list uses FATF lists as baseline, so scored as corroboration only (no full double count).",
+          "points": 2,
+          "source": "European Commission",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en"
+        },
+        {
+          "code": "OFAC_TARGETED_COUNTRY_PROGRAM",
+          "description": "OFAC country-named program that targets listed persons/entities, not the country as a whole. Program: Yemen-related Sanctions.",
+          "points": 2,
+          "source": "OFAC",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/yemen-related-sanctions"
+        }
+      ],
+      "sources": [
+        {
+          "organization": "FATF",
+          "status": "INCREASED_MONITORING",
+          "statusDetail": "Under increased monitoring; statement reproduced from February 2023 (FATF unable to conduct on-site visit due to security situation).",
+          "sourceDate": "2026-06-19",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html"
+        },
+        {
+          "organization": "European Commission",
+          "status": "HIGH_RISK",
+          "statusDetail": "EU high-risk third country under Delegated Regulation (EU) 2016/1675 as amended; entry into force 2016-09-23.",
+          "sourceDate": "2026-01-09",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en",
+          "legalActs": [
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600046",
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202600083"
+          ]
+        },
+        {
+          "organization": "OFAC",
+          "status": "SANCTIONS_RELATED",
+          "statusDetail": "Yemen-related Sanctions – tier TARGETED. Country-level program only; not a wallet/person screening result.",
+          "programLastUpdated": "2021-11-18",
+          "verification": "PROGRAM_INDEX_ONLY",
+          "checkedDate": "2026-09-23",
+          "sourceUrl": "https://ofac.treasury.gov/sanctions-programs-and-country-information/yemen-related-sanctions"
+        }
+      ],
+      "lastUpdated": "2026-09-23",
+      "policyVersion": "country-risk-v1",
+      "noIndicatorFoundIn": []
+    }
+  ]
+}

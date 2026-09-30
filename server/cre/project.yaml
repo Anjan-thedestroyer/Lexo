@@ -1,0 +1,12 @@
+version: "1.0"
+project:
+  name: "lexo-cre-workflows"
+
+workflows:
+  register-identity:
+    entrypoint: "./cre/workflows/registerIdentity.ts"
+    config: "./config.json"
+
+  add-wallet:
+    entrypoint: "./cre/workflows/addWallet.ts"
+    config: "./config.json"

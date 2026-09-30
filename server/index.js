@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import {connectDB} from "./config/connectDB.js";
 import CoreAgreementRouter from "./routes/CoreAgreement.routes.js";
@@ -25,13 +26,12 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet());
 
 // Cross-Origin Resource Sharing Middleware
-app.use(
-  cors({
-    origin: process.env.CLIENT_ORIGIN || "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true
+}));
+
+
 startAgreementListeners();
 startEscrowListener();
 startArbitrationListeners();
@@ -40,6 +40,7 @@ startArbitratorRegistryListeners();
 // Body Parsing Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // Health Check Endpoint
 app.get("/health", (req, res) => {

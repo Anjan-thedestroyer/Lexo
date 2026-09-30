@@ -5,17 +5,25 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "wagmi/connectors";
-import { clearAuth, isAuthenticated } from "@/app/lib/auth";
+import { useAuth } from "@/hooks/useAuth";
+import axiosInstance from "@/lib/axios";
+import { useRouter } from "next/navigation";
+
 interface NavbarProps {
   transparent?: boolean;
 }
 
-const Navbar = ({ transparent  }: NavbarProps) => {
+const Navbar = ({ transparent = false }: NavbarProps) => {
+  const router = useRouter();
+  
   const pathname = usePathname();
 
-  const [sticky, setSticky] = useState(false);
-  const [isLogged, setIsLogged] = useState(false);
+  const [visible, setVisible] = useState(true);
   const [mounted, setMounted] = useState(false);
+
+  const { user, loading, isAuthenticated } = useAuth();
+
+  const [isAuthed, setIsAuthed] = useState(false)
 
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
@@ -23,35 +31,43 @@ const Navbar = ({ transparent  }: NavbarProps) => {
 
   useEffect(() => {
     setMounted(true);
+    console.log(isConnected)
   }, []);
 
   useEffect(() => {
+    let lastScrollY = window.scrollY;
+
     const handleScroll = () => {
-      setSticky(window.scrollY > 50);
+      const currentScrollY = window.scrollY;
+
+      if (currentScrollY <= 20) {
+        setVisible(true);
+      } else if (currentScrollY > lastScrollY) {
+        setVisible(false);
+      } else {
+        setVisible(true);
+      }
+
+      lastScrollY = currentScrollY;
     };
 
-    handleScroll();
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);
-
-  useEffect(() => {
-    const checkAuth = () => {
-      setIsLogged(isAuthenticated());
-    };
-
-    checkAuth();
-
-    window.addEventListener("auth-change", checkAuth);
-
-    return () => {
-      window.removeEventListener("auth-change", checkAuth);
-    };
-  }, []);
-
+  const handleLogout=async()=>{
+    try{
+      const response = await axiosInstance.post("/auth/logout")
+      console.log(response)
+       if (response.data.success) {
+         window.location.reload();
+       }
+    }catch(error){
+      console.log(error)
+    }
+  }
   const handleWallet = () => {
     if (!mounted) return;
 
@@ -65,13 +81,6 @@ const Navbar = ({ transparent  }: NavbarProps) => {
     });
   };
 
-  const handleLogout = () => {
-    clearAuth();
-
-    setIsLogged(false);
-    window.dispatchEvent(new Event("auth-change"));
-  };
-
   const linkClass = (path: string) =>
     `text-sm font-medium transition-colors duration-200 ${
       pathname === path || (path !== "/" && pathname.startsWith(`${path}/`))
@@ -82,10 +91,12 @@ const Navbar = ({ transparent  }: NavbarProps) => {
   return (
     <header className="relative z-50">
       <nav
-        className={`fixed left-0 top-0 z-50 w-full transition-all duration-300 ${
-          sticky || !transparent
-            ? "border-b border-white/10 bg-[#080B14]/90 shadow-lg backdrop-blur-xl"
-            : "bg-transparent"
+        className={`fixed left-0 top-0 z-50 w-full transition-transform duration-300 ${
+          visible ? "translate-y-0" : "-translate-y-full"
+        } ${
+          transparent
+            ? "bg-transparent"
+            : "border-b border-white/10 bg-[#080B14]/90 shadow-lg backdrop-blur-xl"
         }`}
       >
         <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-8">
@@ -118,8 +129,8 @@ const Navbar = ({ transparent  }: NavbarProps) => {
               Escrow
             </Link>
 
-            <Link href="/activity" className={linkClass("/activity")}>
-              Activity
+            <Link href="/verify" className={linkClass("/verify")}>
+              Verify
             </Link>
 
             <Link
@@ -132,36 +143,51 @@ const Navbar = ({ transparent  }: NavbarProps) => {
 
           {/* Actions */}
           <div className="flex items-center gap-3">
-            {isLogged ? (
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
-              >
-                Logout
-              </button>
-            ) : (
-              <Link
-                href="/login"
-                className="rounded-lg px-4 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
-              >
-                Login
-              </Link>
-            )}
+            {!loading &&
+              (isAuthenticated ? (
+                <>
+                  <span className="hidden text-sm text-white/60 lg:block">
+                    {user?.name}
+                  </span>
 
-            {/* Wallet */}
-            <button
-              type="button"
-              onClick={handleWallet}
-              disabled={!mounted}
-              className="rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-[#080B14] transition hover:bg-white/90 disabled:cursor-default disabled:opacity-100"
-            >
-              {!mounted
-                ? "Connect Wallet"
-                : isConnected && address
-                  ? `${address.slice(0, 6)}...${address.slice(-4)}`
-                  : "Connect Wallet"}
-            </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Logout
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleWallet}
+                    disabled={!mounted}
+                    className="rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-[#080B14] transition hover:bg-white/90 disabled:cursor-default disabled:opacity-100"
+                  >
+                    {!mounted
+                      ? "Connect Wallet"
+                      : isConnected && address
+                        ? `${address.slice(0, 6)}...${address.slice(-4)}`
+                        : "Connect Wallet"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Login
+                  </Link>
+
+                  <Link
+                    href="/signup"
+                    className="rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-[#080B14] transition hover:bg-white/90"
+                  >
+                    Get Started
+                  </Link>
+                </>
+              ))}
           </div>
         </div>
       </nav>

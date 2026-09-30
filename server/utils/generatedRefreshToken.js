@@ -14,7 +14,7 @@ const genertedRefreshToken = async (userId) => {
         }
     )
 
-    return token
+    return token;
 }
 //name
 export default genertedRefreshToken        

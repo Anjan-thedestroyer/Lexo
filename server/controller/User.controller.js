@@ -63,11 +63,8 @@ export async function loginController(req, res) {
         });
 
         // 7. Cookie options
-        const cookieOptions = {
-            httpOnly: true,
-            secure: true,
-            sameSite: "None",
-        };
+       const cookieOptions = { httpOnly: true, secure: process.env.NODE_ENV === "production",
+         sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax", };
 
         res.cookie("accessToken", accessToken, cookieOptions);
         res.cookie("refreshToken", refreshToken, cookieOptions);

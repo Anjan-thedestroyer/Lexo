@@ -4,7 +4,7 @@ import { useState } from "react"; // Remove useMemo, useEffect
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
-import { config } from "./lib/wagmi";
+import { config } from "../lib/wagmi";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // This ensures the QueryClient is only created once and persists

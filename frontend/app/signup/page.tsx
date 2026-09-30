@@ -2,26 +2,47 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import Navbar from "@/component/Navbar";
+import axiosInstance from "../../lib/axios";
 
 export default function SignupPage() {
+  const router = useRouter();
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-
+    setError("");
     setLoading(true);
 
     try {
-      // Connect your registration API here
-      console.log({ name, email, password });
+      const response = await axiosInstance.post("/auth/register", {
+        name,
+        email,
+        phone,
+        password,
+      });
+
+      if (response.data.success) {
+        router.push("/login");
+      }
+    } catch (error: any) {
+      console.error("Registration error:", error);
+
+      setError(
+        error.response?.data?.message ||
+          "Unable to create account. Please try again."
+      );
     } finally {
       setLoading(false);
     }
-  };
+};
 
   return (
     <main className="min-h-screen bg-[#080B14] text-white">
@@ -87,6 +108,26 @@ export default function SignupPage() {
 
               <div>
                 <label
+                  htmlFor="phone"
+                  className="mb-2 block text-sm font-medium text-white/80"
+                >
+                  Phone
+                </label>
+
+                <input
+                  id="phone"
+                  type="tel"
+                  placeholder="98xxxxxxxx"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                  minLength={8}
+                  className="h-12 w-full rounded-lg border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-white/30 focus:bg-white/[0.04]"
+                />
+              </div>
+
+              <div>
+                <label
                   htmlFor="password"
                   className="mb-2 block text-sm font-medium text-white/80"
                 >
@@ -105,6 +146,12 @@ export default function SignupPage() {
                 />
               </div>
 
+              {error && (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                  {error}
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
@@ -119,6 +166,7 @@ export default function SignupPage() {
               <span className="text-xs text-white/30">OR</span>
               <div className="h-px flex-1 bg-white/10" />
             </div>
+
             <p className="mt-6 text-center text-sm text-white/45">
               Already have an account?{" "}
               <Link

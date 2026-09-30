@@ -2,21 +2,39 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+  import { useRouter } from "next/navigation";
 import Navbar from "@/component/Navbar";
+import axiosInstance from "../../lib/axios";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
+    setError("");
     setLoading(true);
 
     try {
-      // Connect your login API here
-      console.log({ email, password });
+      const response = await axiosInstance.post("/auth/login", {
+        email,
+        password,
+      });
+
+      if (response.data.success) {
+        router.push("/");
+      }
+    } catch (error: any) {
+      console.error("Login error:", error);
+
+      setError(
+        error.response?.data?.message ||
+          "Unable to sign in. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -93,6 +111,12 @@ export default function LoginPage() {
                 />
               </div>
 
+              {error && (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                  {error}
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
@@ -107,6 +131,7 @@ export default function LoginPage() {
               <span className="text-xs text-white/30">OR</span>
               <div className="h-px flex-1 bg-white/10" />
             </div>
+
             <p className="mt-6 text-center text-sm text-white/45">
               Don't have an account?{" "}
               <Link

@@ -6,7 +6,7 @@ const CoreAgreementSchema = new mongoose.Schema({
         required : true
     },
     termsDocs: {
-        type: String,
+        type: Buffer,
         required: true
     },
     termsHash: {

@@ -78,6 +78,15 @@ const verificationSchema = new mongoose.Schema(
             type: String,
             default: null,
         },
+        amlScore: {
+            type: Number,
+            default: null,
+        },
+
+        countryRiskScore: {
+            type: Number,
+            default: null,
+        },
     },
     {
         timestamps: true,

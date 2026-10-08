@@ -38,6 +38,8 @@ const screenWallet = async (walletAddress) => {
     } catch {
         throw new Error("Invalid JSON response from AML service");
     }
+    console.log("AML API RESPONSE:", JSON.stringify(data, null, 2));
+
 
     const walletData = data?.entities?.[0];
 

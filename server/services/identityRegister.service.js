@@ -74,7 +74,7 @@ const identityRegisterService = async ({
 
   const passport = await PassportModel.create({
     identityHash,
-    citizenship: nationality,
+    nationality,
     user: user._id,
     status: "Requested",
   });

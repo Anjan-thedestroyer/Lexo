@@ -1,0 +1,6 @@
+{
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia",
+    "identityRegisterAddress": "0x7c827d0293b7ed891ed589542d1d11450590812d"
+  }
+}

@@ -32,10 +32,10 @@ app.use(cors({
 }));
 
 
-startAgreementListeners();
-startEscrowListener();
-startArbitrationListeners();
-startArbitratorRegistryListeners();
+// startAgreementListeners();
+// startEscrowListener();
+// startArbitrationListeners();
+// startArbitratorRegistryListeners();
 
 // Body Parsing Middleware
 app.use(express.json());

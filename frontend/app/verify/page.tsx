@@ -1,17 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Navbar from "@/component/Navbar";
 import { useAuth } from "@/hooks/useAuth";
 import { useAccount } from "wagmi";
+import { useRouter } from "next/navigation";
 
 export default function VerificationSite() {
+      const router = useRouter();
     const { user, loading, isAuthenticated } = useAuth();
     const { address, isConnected } = useAccount();
 
     const [acceptedTerms, setAcceptedTerms] = useState(false);
+    useEffect(()=>{
+        if(!loading)
+        console.log(user);
 
+    },[loading])
     if (loading) {
         return (
             <div className="min-h-screen bg-[#080B14] text-white">
@@ -19,6 +25,10 @@ export default function VerificationSite() {
             </div>
         );
     }
+    function handleSubmit(){
+        router.push(`/verify/${user.userId}`)
+    }
+
 
     return (
         <div className="min-h-screen bg-[#080B14] text-white">
@@ -86,6 +96,12 @@ export default function VerificationSite() {
                                         {user?.email}
                                     </span>
                                 </p>
+                                <p className="text-white/60">
+                                    Phone:{" "}
+                                    <span className="text-white">
+                                        {user?.phone}
+                                    </span>
+                                </p>
                             </div>
                         </section>
 
@@ -103,71 +119,10 @@ export default function VerificationSite() {
 
                             {/* Your identity form goes here */}
                         </section>
-
-                        {/* Terms */}
-                        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-                            <h2 className="text-lg font-semibold">
-                                Terms & Conditions
-                            </h2>
-
-                            <label className="mt-4 flex cursor-pointer items-start gap-3">
-                                <input
-                                    type="checkbox"
-                                    checked={acceptedTerms}
-                                    onChange={(e) =>
-                                        setAcceptedTerms(e.target.checked)
-                                    }
-                                    className="mt-1"
-                                />
-
-                                <span className="text-sm text-white/60">
-                                    I have read and agree to the Lexo terms
-                                    and conditions.
-                                </span>
-                            </label>
-                        </section>
-
-                        {/* Wallet */}
-                        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-                            <h2 className="text-lg font-semibold">
-                                Root Wallet
-                            </h2>
-
-                            {isConnected && address ? (
-                                <div className="mt-4">
-                                    <p className="text-sm text-green-400">
-                                        Wallet connected
-                                    </p>
-
-                                    <p className="mt-2 break-all text-sm text-white/60">
-                                        {address}
-                                    </p>
-                                </div>
-                            ) : (
-                                <p className="mt-4 text-sm text-yellow-400">
-                                    Connect your wallet to continue.
-                                </p>
-                            )}
-                        </section>
-
-                        {/* Rarimo */}
-                        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-                            <h2 className="text-lg font-semibold">
-                                Identity Verification
-                            </h2>
-
-                            <p className="mt-2 text-sm text-white/60">
-                                Complete the Rarimo verification step using
-                                the QR code provided below.
-                            </p>
-
-                            {/* Rarimo QR component goes here */}
-                        </section>
-
                         {/* Submit */}
                         <button
                             type="button"
-                            disabled={!acceptedTerms || !isConnected}
+                            onClick={handleSubmit}
                             className="mt-8 w-full rounded-lg bg-white px-6 py-3 text-sm font-semibold text-[#080B14] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             Continue Verification

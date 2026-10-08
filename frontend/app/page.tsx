@@ -3,7 +3,7 @@
 import Navbar from "@/component/Navbar";
 
 const backgroundImage =
-  "https://wallpapers4screen.com/Uploads/5-10-2025/89989/ethereum-3d-dark-yellow-logo-4k-eth-dark-yellow-motherboard-ethereum-logo.jpg";
+  "https://wallpapers4screen.com/Uploads/5-10-2025/89989/ -3d-dark-yellow-logo-4k-eth-dark-yellow-motherboard-ethereum-logo.jpg";
 
 export default function Home() {
   return (

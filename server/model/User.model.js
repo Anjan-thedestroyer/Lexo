@@ -33,6 +33,11 @@ const userSchema = new mongoose.Schema(
             default: null,
         },
 
+        Identity_attestation:{
+            type: String,
+            default: null,
+        },
+
         wallets: [
             {
                 type: mongoose.Schema.Types.ObjectId,

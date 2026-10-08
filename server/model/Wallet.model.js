@@ -21,6 +21,11 @@ const walletSchema = new mongoose.Schema(
       default: "Active",
     },
 
+    attestation :{
+      type : String,
+      default : null,
+    },
+
     linkedAt: {
       type: Date,
       default: Date.now,

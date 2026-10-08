@@ -39,20 +39,37 @@ export async function setCoreAgreement(req, res) {
 }
 
 export async function getCoreAgreement(req, res) {
-  try {
-    const coreAgreement = await CoreAgreementModel.findOne();
-    return res.status(200).json({
-      message: "Core agreement retrieved successfully",
-      success: true,
-      data: coreAgreement,
-    });
-  } catch (error) {
-    console.error("Error retrieving core agreement:", error);
-    return res.status(500).json({
-      message: "Internal server error",
-      success: false,
-    });
-  }
+    try {
+        const coreAgreement = await CoreAgreementModel.findOne();
+
+        if (!coreAgreement) {
+            return res.status(404).json({
+                message: "Core agreement not found",
+                success: false,
+            });
+        }
+
+        return res.status(200).json({
+            message: "Core agreement retrieved successfully",
+            success: true,
+            data: {
+                _id: coreAgreement._id,
+                terms: coreAgreement.terms,
+                termsDocs: coreAgreement.termsDocs
+                    ? coreAgreement.termsDocs.toString("base64")
+                    : null,
+                termsHash: coreAgreement.termsHash,
+                contractAddress: coreAgreement.contractAddress,
+            },
+        });
+    } catch (error) {
+        console.error("Error retrieving core agreement:", error);
+
+        return res.status(500).json({
+            message: "Internal server error",
+            success: false,
+        });
+    }
 }
 
 export async function checkCoreDocs(req, res) {

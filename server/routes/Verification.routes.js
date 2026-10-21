@@ -1,6 +1,7 @@
 import express from "express";
 
 import {
+  getVerificationStatus,
   reqAttestationForIdentityRegistration,
   reqAttestationForWalletAddition,
 } from "../controller/Verification.controller.js";
@@ -28,6 +29,12 @@ verificationRouter.post(
   "/wallet-addition",
   authMiddleware,
   reqAttestationForWalletAddition
+);
+
+verificationRouter.get(
+  "/status",
+  authMiddleware,
+  getVerificationStatus
 );
 
 export default verificationRouter;

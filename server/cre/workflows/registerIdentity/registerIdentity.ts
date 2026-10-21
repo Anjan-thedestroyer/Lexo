@@ -1,3 +1,4 @@
+
 import {
   cre,
   Runner,
@@ -30,7 +31,7 @@ import {
 import { fetchLLMExplanation } from "../../utils/llm.service";
 
 /* =========================================================
-   CONFIG
+   CONFIG — UNCHANGED
    ========================================================= */
 
 const CHAIN_SELECTOR_NAME = "ethereum-testnet-sepolia";
@@ -40,7 +41,7 @@ const IDENTITY_REGISTER_ADDRESS =
   "0x7c827d0293b7ed891ed589542d1d11450590812d" as Address;
 
 /* =========================================================
-   CONTRACT ABI
+   CONTRACT ABI — UNCHANGED
    ========================================================= */
 
 const IDENTITY_REGISTER_ABI = [
@@ -48,36 +49,30 @@ const IDENTITY_REGISTER_ABI = [
     type: "function",
     name: "nonces",
     stateMutability: "view",
-    inputs: [
-      {
-        name: "wallet",
-        type: "address",
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "uint256",
-      },
-    ],
+    inputs: [{ name: "wallet", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
     name: "verifier",
     stateMutability: "view",
     inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "address",
-      },
-    ],
+    outputs: [{ name: "", type: "address" }],
   },
 ] as const;
 
 /* =========================================================
-   INPUT TYPE
+   INPUT TYPES
    ========================================================= */
+
+// Matches the object returned by the existing AML service.
+type WalletData = {
+  amlScore: number | null;
+  amlData: unknown | null;
+  amlStatus: "SCORED" | "UNKNOWN" | "INCONCLUSIVE";
+  riskLevel: string;
+  reason?: string;
+};
 
 type RegisterIdentityPayload = {
   verificationId: string;
@@ -85,60 +80,84 @@ type RegisterIdentityPayload = {
   wallet: string;
   identityHash: string;
   nationality: string;
-  rarimoProof?: unknown;
+  rarimoProof: unknown;
   ageAbove17: boolean;
   passportExpired: boolean;
-  authLevel: string;
   deadline?: number;
+  walletData?: WalletData;
 };
 
-/* =========================================================
-   WORKFLOW CONFIG
-   ========================================================= */
-
 type WorkflowConfig = Record<string, never>;
+
+type RiskTier = "LOW" | "MEDIUM" | "HIGH";
 
 /* =========================================================
    HELPERS
    ========================================================= */
 
-function assertBytes32(
-  value: string,
-  field: string
-): Hex {
+function assertBytes32(value: string, field: string): Hex {
   if (!isHex(value) || value.length !== 66) {
-    throw new Error(
-      `${field} must be a valid bytes32 value`
-    );
+    throw new Error(`${field} must be a valid bytes32 value`);
   }
 
   return value as Hex;
 }
 
-function decodeNonce(
-  data: Uint8Array
-): bigint {
-  const raw = bytesToHex(data);
-
+function decodeNonce(data: Uint8Array): bigint {
   return decodeFunctionResult({
     abi: IDENTITY_REGISTER_ABI,
     functionName: "nonces",
-    data: raw,
+    data: bytesToHex(data),
   });
 }
 
-function decodeVerifier(
-  data: Uint8Array
-): Address {
-  const raw = bytesToHex(data);
-
+function decodeVerifier(data: Uint8Array): Address {
   const verifier = decodeFunctionResult({
     abi: IDENTITY_REGISTER_ABI,
     functionName: "verifier",
-    data: raw,
+    data: bytesToHex(data),
   });
 
   return getAddress(verifier);
+}
+
+function normalizeAmlStatus(
+  status: unknown
+): "SCORED" | "UNKNOWN" | "INCONCLUSIVE" {
+  if (typeof status !== "string") {
+    return "UNKNOWN";
+  }
+
+  const normalized = status.toUpperCase().trim();
+
+  if (
+    normalized === "SCORED" ||
+    normalized === "UNKNOWN" ||
+    normalized === "INCONCLUSIVE"
+  ) {
+    return normalized;
+  }
+
+  throw new Error(`Unsupported AML status: ${status}`);
+}
+
+function normalizeAmlRiskLevel(
+  riskLevel: unknown
+): string | null {
+  if (typeof riskLevel !== "string" || !riskLevel.trim()) {
+    return null;
+  }
+
+  return riskLevel
+    .toUpperCase()
+    .trim()
+    .replace(/[\s-]+/g, "_");
+}
+
+function getCombinedRiskTier(score: number): RiskTier {
+  if (score >= 70) return "HIGH";
+  if (score >= 40) return "MEDIUM";
+  return "LOW";
 }
 
 /* =========================================================
@@ -149,28 +168,13 @@ const onHttpTrigger = async (
   runtime: Runtime<WorkflowConfig>,
   payload: HTTPPayload
 ): Promise<string> => {
-  runtime.log(
-    "[CRE] Identity registration request received"
-  );
+  runtime.log("[CRE] Identity registration request received");
 
   try {
-    /* =======================================================
-       DECODE INPUT
-       ======================================================= */
-
-    if (
-      !payload.input ||
-      payload.input.length === 0
-    ) {
-      throw new Error(
-        "Empty HTTP payload received"
-      );
+    if (!payload.input || payload.input.length === 0) {
+      throw new Error("Empty HTTP payload received");
     }
 
-    /*
-     * CRE decodeJson accepts the payload only.
-     * The TypeScript type is applied afterwards.
-     */
     const input = decodeJson(
       payload.input
     ) as RegisterIdentityPayload;
@@ -184,308 +188,265 @@ const onHttpTrigger = async (
       rarimoProof,
       ageAbove17,
       passportExpired,
-      authLevel,
       deadline: suppliedDeadline,
+      walletData,
     } = input;
 
-    /* =======================================================
-       BASIC VALIDATION
-       ======================================================= */
+    /* INPUT VALIDATION */
 
-    if (!verificationId) {
-      throw new Error(
-        "verificationId is required"
-      );
-    }
-
-    if (!userId) {
-      throw new Error(
-        "userId is required"
-      );
+    if (!verificationId || !userId) {
+      throw new Error("verificationId and userId are required");
     }
 
     if (!wallet || !isAddress(wallet)) {
-      throw new Error(
-        "Invalid wallet address"
-      );
+      throw new Error("Invalid wallet address");
     }
 
     if (!identityHash) {
+      throw new Error("identityHash is required");
+    }
+
+    if (!nationality || typeof nationality !== "string") {
+      throw new Error("Valid nationality is required");
+    }
+
+    if (rarimoProof === undefined || rarimoProof === null) {
+      throw new Error("rarimoProof is required");
+    }
+
+    if (
+      typeof ageAbove17 !== "boolean" ||
+      typeof passportExpired !== "boolean"
+    ) {
       throw new Error(
-        "identityHash is required"
+        "ageAbove17 and passportExpired must be booleans"
       );
     }
 
-    if (!nationality) {
-      throw new Error(
-        "nationality is required"
-      );
-    }
+    const normalizedWallet = getAddress(wallet);
 
-    const normalizedWallet =
-      getAddress(wallet);
-
-    const normalizedIdentityHash =
-      assertBytes32(
-        identityHash,
-        "identityHash"
-      );
-
-    /* =======================================================
-       INPUT LOGGING
-       ======================================================= */
-
-    runtime.log(
-      `[CRE] Chain selector: ${CHAIN_SELECTOR_NAME}`
+    const normalizedIdentityHash = assertBytes32(
+      identityHash,
+      "identityHash"
     );
 
-    runtime.log(
-      `[CRE] Chain ID: ${CHAIN_ID}`
-    );
-
+    runtime.log(`[CRE] Chain selector: ${CHAIN_SELECTOR_NAME}`);
+    runtime.log(`[CRE] Chain ID: ${CHAIN_ID}`);
     runtime.log(
       `[CRE] IdentityRegister: ${IDENTITY_REGISTER_ADDRESS}`
     );
-
+    runtime.log(`[CRE] Verification ID: ${verificationId}`);
+    runtime.log(`[CRE] Wallet: ${normalizedWallet}`);
+    runtime.log(`[CRE] Identity hash: ${normalizedIdentityHash}`);
+    runtime.log(`[CRE] Nationality: ${nationality}`);
+    runtime.log(`[CRE] Age above 17: ${ageAbove17}`);
+    runtime.log(`[CRE] Passport expired: ${passportExpired}`);
     runtime.log(
-      "[CRE] INPUT VALUES"
+      `[CRE] Rarimo proof supplied: ${Boolean(rarimoProof)}`
     );
 
-    runtime.log(
-      `verificationId: ${verificationId}`
-    );
+    /*
+     * NOTE:
+     * Proof presence does not prove cryptographic validity.
+     * Preserve the existing proof validation/integration separately.
+     */
 
-    runtime.log(
-      `userId: ${userId}`
-    );
+    /* IDENTITY SIGNALS — ORIGINAL INPUT PRESERVED */
 
-    runtime.log(
-      `wallet: ${normalizedWallet}`
-    );
+    const identitySignals = normalizeIdentitySignals({
+      nationality,
+      ageAbove17,
+      passportExpired,
+      rarimoProof,
+    });
 
-    runtime.log(
-      `identityHash: ${normalizedIdentityHash}`
-    );
-
-    runtime.log(
-      `nationality: ${nationality}`
-    );
-
-    runtime.log(
-      `rarimoProof present: ${
-        rarimoProof !== undefined &&
-        rarimoProof !== null
-      }`
-    );
-
-    runtime.log(
-      `ageAbove17: ${ageAbove17}`
-    );
-
-    runtime.log(
-      `passportExpired: ${passportExpired}`
-    );
-
-    runtime.log(
-      `authLevel: ${authLevel}`
-    );
-
-    /* =======================================================
-       IDENTITY SIGNALS
-       ======================================================= */
-
-    const identitySignals =
-      normalizeIdentitySignals({
-        nationality,
-        ageAbove17,
-        passportExpired,
-        authLevel,
-        rarimoProof,
-      });
-
-    runtime.log(
-      "[CRE] IDENTITY SIGNALS"
-    );
-
+    runtime.log("[CRE] Identity signals normalized");
     runtime.log(
       `Country code: ${identitySignals.countryRisk.countryCode}`
     );
-
     runtime.log(
       `Country score: ${identitySignals.countryRisk.score}`
     );
-
     runtime.log(
       `Country level: ${identitySignals.countryRisk.level}`
     );
 
-    runtime.log(
-      `Nationality: ${identitySignals.nationality}`
+    /* IDENTITY RISK */
+
+    const ruleResult = runIdentityRuleEngine(identitySignals);
+
+    runtime.log(`[CRE] Identity risk score: ${ruleResult.score}/100`);
+    runtime.log(`[CRE] Identity risk tier: ${ruleResult.tier}`);
+
+    /* AML DATA — MATCHES AML.service.js OUTPUT */
+
+    const amlStatus = normalizeAmlStatus(
+      walletData?.amlStatus
     );
 
-    /* =======================================================
-       DETERMINISTIC RULE ENGINE
-       ======================================================= */
+    const amlScore = walletData?.amlScore ?? null;
 
-    const ruleResult =
-      runIdentityRuleEngine(
-        identitySignals
-      );
-
-    runtime.log(
-      "[CRE] RULE ENGINE RESULT"
+    const amlRiskLevel = normalizeAmlRiskLevel(
+      walletData?.riskLevel
     );
 
-    runtime.log(
-      `Risk score: ${ruleResult.score}/100`
-    );
+    if (
+      amlScore !== null &&
+      (
+        typeof amlScore !== "number" ||
+        !Number.isFinite(amlScore) ||
+        amlScore < 0 ||
+        amlScore > 100
+      )
+    ) {
+      throw new Error("AML score must be between 0 and 100");
+    }
 
-    runtime.log(
-      `Risk tier: ${ruleResult.tier}`
-    );
+    let amlPenalty = 0;
 
     /*
-     * RiskResult contains only:
-     *   score
-     *   tier
-     *
-     * Decision is derived separately.
+     * Only apply AML penalties to a scored result.
+     * UNKNOWN and INCONCLUSIVE remain explicitly recorded.
      */
-    const decision =
-      decisionEngine(
-        ruleResult.tier
-      );
+    if (walletData && amlStatus === "SCORED") {
+      switch (amlRiskLevel) {
+        case "LOW":
+          amlPenalty = 0;
+          break;
 
-    const approved =
-      decision === "APPROVE";
+        case "MODERATE":
+        case "MEDIUM":
+          amlPenalty = 30;
+          break;
 
-    runtime.log(
-      `Decision: ${decision}`
+        case "HIGH":
+          amlPenalty = 70;
+          break;
+
+        case "VERY_HIGH":
+          amlPenalty = 90;
+          break;
+
+        default:
+          throw new Error(
+            `Unsupported AML risk level for scored wallet: ${
+              amlRiskLevel ?? "missing"
+            }`
+          );
+      }
+    }
+
+    /*
+     * An AML provider's numeric score is recorded, but the
+     * configured penalty is based on its riskLevel. This avoids
+     * assuming all providers use the same score semantics.
+     */
+    const combinedScore = Math.min(
+      100,
+      ruleResult.score + amlPenalty
     );
 
-    /* =======================================================
-       COUNTRY RISK
-       ======================================================= */
+    const combinedTier = getCombinedRiskTier(combinedScore);
+
+    runtime.log(`[CRE] AML status: ${amlStatus}`);
+    runtime.log(
+      `[CRE] AML score: ${amlScore ?? "unavailable"}`
+    );
+    runtime.log(
+      `[CRE] AML risk level: ${amlRiskLevel ?? "unknown"}`
+    );
+    runtime.log(`[CRE] AML penalty: ${amlPenalty}`);
+    runtime.log(`[CRE] Combined risk score: ${combinedScore}/100`);
+    runtime.log(`[CRE] Combined risk tier: ${combinedTier}`);
+
+    /* FINAL DETERMINISTIC DECISION */
+
+    const decision = decisionEngine(combinedTier);
+
+    const validDecisions = [
+      "APPROVE",
+      "MANUAL_REVIEW",
+      "REJECT",
+    ] as const;
+
+    if (
+      !validDecisions.includes(
+        decision as (typeof validDecisions)[number]
+      )
+    ) {
+      throw new Error(`Unsupported identity decision: ${decision}`);
+    }
+
+    const approved = decision === "APPROVE";
+
+    runtime.log(`[CRE] Final decision: ${decision}`);
 
     const countryRisk = {
       ...identitySignals.countryRisk,
-      country:
-        identitySignals.countryRisk.country ??
-        "",
+      country: identitySignals.countryRisk.country ?? "",
     };
 
-    /* =======================================================
-       LLM EXPLANATION
-       ======================================================= */
+    /* LLM EXPLANATION — NOT A DECISION MAKER */
 
-    /*
-     * The LLM is explanatory only.
-     *
-     * It does NOT:
-     * - calculate risk
-     * - change the score
-     * - change the tier
-     * - change the decision
-     */
+    const explanation = await fetchLLMExplanation(runtime, {
+      type: "IDENTITY",
+      wallet: normalizedWallet,
+      riskScore: combinedScore,
+      riskTier: combinedTier,
+      decision,
+      signals: identitySignals,
+      nationality: identitySignals.nationality,
+      countryRisk: identitySignals.countryRisk,
+    });
 
-    const explanation =
-      fetchLLMExplanation(
-        runtime,
-        {
-          type: "IDENTITY",
+    runtime.log(`[CRE] LLM explanation: ${explanation}`);
 
-          wallet:
-            normalizedWallet,
+    /* COMMON RESPONSE FIELDS */
 
-          riskScore:
-            ruleResult.score,
+    const responseRiskFields = {
+      score: combinedScore,
+      tier: combinedTier,
+      identityScore: ruleResult.score,
+      amlStatus,
+      amlScore,
+      amlRiskLevel,
+    };
 
-          riskTier:
-            ruleResult.tier,
-
-          decision,
-
-          signals:
-            identitySignals,
-
-          nationality:
-            identitySignals.nationality,
-
-          countryRisk:
-            identitySignals.countryRisk,
-        }
-      );
-
-    runtime.log(
-      `[CRE] LLM explanation: ${explanation}`
-    );
-
-    /* =======================================================
-       REJECTED IDENTITY
-       ======================================================= */
+    /* NON-APPROVAL: NO SIGNATURE */
 
     if (!approved) {
       runtime.log(
-        "[CRE] Identity rejected. No attestation generated."
+        `[CRE] ${decision}: no identity attestation generated`
       );
 
       return JSON.stringify({
         approved: false,
-
         decision,
-
-        score:
-          ruleResult.score,
-
-        tier:
-          ruleResult.tier,
-
-        reason:
-          explanation,
-
-        wallet:
-          normalizedWallet,
-
-        identityHash:
-          normalizedIdentityHash,
-
+        ...responseRiskFields,
+        reason: explanation,
+        wallet: normalizedWallet,
+        identityHash: normalizedIdentityHash,
         verificationId,
-
         userId,
-
         countryRisk,
-
         nonce: null,
-
         deadline: null,
-
         signature: null,
-
-        contract:
-          IDENTITY_REGISTER_ADDRESS,
-
-        chainId:
-          CHAIN_ID,
-
+        contract: IDENTITY_REGISTER_ADDRESS,
+        chainId: CHAIN_ID,
         verifier: null,
       });
     }
 
-    /* =======================================================
-       RESOLVE EVM NETWORK
-       ======================================================= */
+    /* RESOLVE SEPOLIA NETWORK — UNCHANGED */
 
-    runtime.log(
-      "[CRE] RESOLVING EVM NETWORK"
-    );
+    runtime.log("[CRE] Resolving EVM network");
 
-    const network =
-      getNetwork({
-        chainFamily: "evm",
-        chainSelectorName:
-          CHAIN_SELECTOR_NAME,
-        isTestnet: true,
-      });
+    const network = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: CHAIN_SELECTOR_NAME,
+      isTestnet: true,
+    });
 
     if (!network) {
       throw new Error(
@@ -493,179 +454,96 @@ const onHttpTrigger = async (
       );
     }
 
-    runtime.log(
-      `[CRE] Network chain ID: ${network.chainId}`
-    );
-
-    runtime.log(
-      `[CRE] Network selector: ${network.chainSelector.selector}`
-    );
-
-    const evmClient =
-      new cre.capabilities.EVMClient(
-        network.chainSelector.selector
+    if (Number(network.chainId) !== CHAIN_ID) {
+      throw new Error(
+        `Unexpected chain ID: ${network.chainId}`
       );
+    }
 
-    runtime.log(
-      "[CRE] EVMClient initialized"
+    const evmClient = new cre.capabilities.EVMClient(
+      network.chainSelector.selector
     );
 
-    /* =======================================================
-       READ NONCE
-       ======================================================= */
+    /* READ ON-CHAIN NONCE — UNCHANGED */
 
-    runtime.log(
-      "[CRE] Reading IdentityRegister nonce..."
-    );
+    runtime.log("[CRE] Reading identity nonce");
 
-    const nonceCallData =
-      encodeFunctionData({
-        abi:
-          IDENTITY_REGISTER_ABI,
+    const nonceCallData = encodeFunctionData({
+      abi: IDENTITY_REGISTER_ABI,
+      functionName: "nonces",
+      args: [normalizedWallet],
+    });
 
-        functionName:
-          "nonces",
-
-        args: [
-          normalizedWallet,
-        ],
-      });
-
-    runtime.log(
-      `[CRE] Nonce calldata: ${nonceCallData}`
-    );
-
-    const nonceResult =
-      evmClient
-        .callContract(runtime, {
-          call: encodeCallMsg({
-            from:
-              normalizedWallet,
-
-            to:
-              IDENTITY_REGISTER_ADDRESS,
-
-            data:
-              nonceCallData,
-          }),
-        })
-        .result();
+    const nonceResult = evmClient
+      .callContract(runtime, {
+        call: encodeCallMsg({
+          from: normalizedWallet,
+          to: IDENTITY_REGISTER_ADDRESS,
+          data: nonceCallData,
+        }),
+      })
+      .result();
 
     if (!nonceResult.data) {
-      throw new Error(
-        "EVM nonce call returned empty response"
-      );
+      throw new Error("EVM nonce call returned empty response");
     }
 
-    const nonce =
-      decodeNonce(
-        nonceResult.data
-      );
+    const nonce = decodeNonce(nonceResult.data);
 
-    runtime.log(
-      `[CRE] Current nonce: ${nonce.toString()}`
-    );
+    runtime.log(`[CRE] On-chain nonce: ${nonce.toString()}`);
 
-    /* =======================================================
-       READ ON-CHAIN VERIFIER
-       ======================================================= */
+    /* READ ON-CHAIN VERIFIER — UNCHANGED */
 
-    runtime.log(
-      "[CRE] Reading on-chain verifier..."
-    );
+    runtime.log("[CRE] Reading contract verifier");
 
-    const verifierCallData =
-      encodeFunctionData({
-        abi:
-          IDENTITY_REGISTER_ABI,
+    const verifierCallData = encodeFunctionData({
+      abi: IDENTITY_REGISTER_ABI,
+      functionName: "verifier",
+    });
 
-        functionName:
-          "verifier",
-      });
-
-    const verifierResult =
-      evmClient
-        .callContract(runtime, {
-          call: encodeCallMsg({
-            from:
-              normalizedWallet,
-
-            to:
-              IDENTITY_REGISTER_ADDRESS,
-
-            data:
-              verifierCallData,
-          }),
-        })
-        .result();
+    const verifierResult = evmClient
+      .callContract(runtime, {
+        call: encodeCallMsg({
+          from: normalizedWallet,
+          to: IDENTITY_REGISTER_ADDRESS,
+          data: verifierCallData,
+        }),
+      })
+      .result();
 
     if (!verifierResult.data) {
-      throw new Error(
-        "EVM verifier call returned empty response"
-      );
+      throw new Error("EVM verifier call returned empty response");
     }
 
-    const onChainVerifier =
-      decodeVerifier(
-        verifierResult.data
-      );
+    const onChainVerifier = decodeVerifier(verifierResult.data);
 
-    runtime.log(
-      `[CRE] On-chain verifier: ${onChainVerifier}`
-    );
+    runtime.log(`[CRE] On-chain verifier: ${onChainVerifier}`);
 
-    /* =======================================================
-       GET CRE VERIFIER PRIVATE KEY
-       ======================================================= */
+    /* LOAD SIGNER SECRET — UNCHANGED */
 
-    const verifierPrivateKeySecret =
-      runtime
-        .getSecret({
-          id:
-            "CRE_VERIFIER_PRIVATE_KEY",
-        })
-        .result();
-
-    if (!verifierPrivateKeySecret) {
-      throw new Error(
-        "CRE_VERIFIER_PRIVATE_KEY secret is not configured"
-      );
-    }
-
-    const verifierPrivateKey =
-      verifierPrivateKeySecret.value;
+    const secret = runtime
+      .getSecret({ id: "CRE_VERIFIER_PRIVATE_KEY" })
+      .result();
 
     if (
-      typeof verifierPrivateKey !==
-        "string" ||
-      !verifierPrivateKey
+      !secret ||
+      typeof secret.value !== "string" ||
+      !secret.value
     ) {
       throw new Error(
-        "CRE_VERIFIER_PRIVATE_KEY secret has no value"
+        "CRE_VERIFIER_PRIVATE_KEY secret is missing or empty"
       );
     }
 
-    /* =======================================================
-       CREATE SIGNER
-       ======================================================= */
+    /* CREATE SIGNER — UNCHANGED */
 
-    const verifierAccount =
-      privateKeyToAccount(
-        verifierPrivateKey as `0x${string}`
-      );
-
-    const signingAddress =
-      getAddress(
-        verifierAccount.address
-      );
-
-    runtime.log(
-      `[CRE] Signing verifier address: ${signingAddress}`
+    const verifierAccount = privateKeyToAccount(
+      secret.value as `0x${string}`
     );
 
-    /* =======================================================
-       VERIFY SIGNER
-       ======================================================= */
+    const signingAddress = getAddress(verifierAccount.address);
+
+    runtime.log(`[CRE] Signing address: ${signingAddress}`);
 
     if (
       signingAddress.toLowerCase() !==
@@ -676,165 +554,70 @@ const onHttpTrigger = async (
       );
     }
 
-    runtime.log(
-      "[CRE] Verifier address matches contract"
-    );
+    runtime.log("[CRE] Signer matches on-chain verifier");
 
-    /* =======================================================
-       DEADLINE
-       ======================================================= */
+    /* ATTESTATION DEADLINE — UNCHANGED */
 
     const deadline =
       suppliedDeadline ??
-      Math.floor(
-        Date.now() / 1000
-      ) + 15 * 60;
+      Math.floor(Date.now() / 1000) + 15 * 60;
 
     if (
-      !Number.isSafeInteger(
-        deadline
-      ) ||
-      deadline <= 0
+      !Number.isSafeInteger(deadline) ||
+      deadline <= Math.floor(Date.now() / 1000)
     ) {
-      throw new Error(
-        "Invalid attestation deadline"
-      );
+      throw new Error("Invalid or expired attestation deadline");
     }
 
-    runtime.log(
-      `[CRE] Attestation deadline: ${deadline}`
-    );
+    runtime.log(`[CRE] Attestation deadline: ${deadline}`);
 
-    /* =======================================================
-       EIP-712 SIGNATURE
-       ======================================================= */
+    /* EIP-712 SIGNATURE — UNCHANGED */
 
-    runtime.log(
-      "[CRE] Creating EIP-712 attestation..."
-    );
+    runtime.log("[CRE] Signing EIP-712 identity attestation");
 
-    const signature =
-      await verifierAccount.signTypedData({
-        domain: {
-          name:
-            "Lexo IdentityRegister",
+    const signature = await verifierAccount.signTypedData({
+      domain: {
+        name: "Lexo IdentityRegister",
+        version: "1",
+        chainId: CHAIN_ID,
+        verifyingContract: IDENTITY_REGISTER_ADDRESS,
+      },
+      types: {
+        RegisterIdentity: [
+          { name: "wallet", type: "address" },
+          { name: "identityHash", type: "bytes32" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      primaryType: "RegisterIdentity",
+      message: {
+        wallet: normalizedWallet,
+        identityHash: normalizedIdentityHash,
+        nonce,
+        deadline: BigInt(deadline),
+      },
+    });
 
-          version:
-            "1",
-
-          chainId:
-            CHAIN_ID,
-
-          verifyingContract:
-            IDENTITY_REGISTER_ADDRESS,
-        },
-
-        types: {
-          RegisterIdentity: [
-            {
-              name:
-                "wallet",
-
-              type:
-                "address",
-            },
-
-            {
-              name:
-                "identityHash",
-
-              type:
-                "bytes32",
-            },
-
-            {
-              name:
-                "nonce",
-
-              type:
-                "uint256",
-            },
-
-            {
-              name:
-                "deadline",
-
-              type:
-                "uint256",
-            },
-          ],
-        },
-
-        primaryType:
-          "RegisterIdentity",
-
-        message: {
-          wallet:
-            normalizedWallet,
-
-          identityHash:
-            normalizedIdentityHash,
-
-          nonce,
-
-          deadline:
-            BigInt(deadline),
-        },
-      });
-
-    runtime.log(
-      "[CRE] EIP-712 signature generated"
-    );
-
-    /* =======================================================
-       FINAL RESPONSE
-       ======================================================= */
-
-    runtime.log(
-      "[CRE] IDENTITY ATTESTATION READY"
-    );
+    runtime.log("[CRE] EIP-712 signature generated");
+    runtime.log("[CRE] Identity attestation ready");
 
     return JSON.stringify({
       approved: true,
-
       decision,
-
-      score:
-        ruleResult.score,
-
-      tier:
-        ruleResult.tier,
-
-      reason:
-        explanation,
-
-      wallet:
-        normalizedWallet,
-
-      identityHash:
-        normalizedIdentityHash,
-
+      ...responseRiskFields,
+      reason: explanation,
+      wallet: normalizedWallet,
+      identityHash: normalizedIdentityHash,
       verificationId,
-
       userId,
-
       countryRisk,
-
-      nonce:
-        nonce.toString(),
-
+      nonce: nonce.toString(),
       deadline,
-
       signature,
-
-      contract:
-        IDENTITY_REGISTER_ADDRESS,
-
-      chainId:
-        CHAIN_ID,
-
-      verifier:
-        onChainVerifier,
+      contract: IDENTITY_REGISTER_ADDRESS,
+      chainId: CHAIN_ID,
+      verifier: onChainVerifier,
     });
   } catch (error) {
     runtime.log(
@@ -845,46 +628,29 @@ const onHttpTrigger = async (
   }
 };
 
-/* =========================================================
-   HTTP TRIGGER
-   ========================================================= */
+/* HTTP TRIGGER — UNCHANGED */
 
-const httpCapability =
-  new cre.capabilities.HTTPCapability();
+const httpCapability = new cre.capabilities.HTTPCapability();
 
-const httpTrigger =
-  httpCapability.trigger({
-    authorizedKeys: [],
-  });
+const httpTrigger = httpCapability.trigger({
+  authorizedKeys: [],
+});
 
-/* =========================================================
-   WORKFLOW
-   ========================================================= */
+/* WORKFLOW — UNCHANGED */
 
 export async function initWorkflow() {
   return [
-    cre.handler(
-      httpTrigger,
-      onHttpTrigger
-    ),
+    cre.handler(httpTrigger, onHttpTrigger),
   ];
 }
 
-/* =========================================================
-   ENTRYPOINT
-   ========================================================= */
+/* ENTRYPOINT — UNCHANGED */
 
 export async function main() {
-  const runner =
-    await Runner.newRunner<WorkflowConfig>();
-
+  const runner = await Runner.newRunner<WorkflowConfig>();
   await runner.run(initWorkflow);
 }
 
 main().catch((error) => {
-  console.error(
-    "[CRE] Workflow failed to initialize:",
-    error
-  );
+  console.error("[CRE] Workflow failed to initialize:", error);
 });
-

@@ -7,14 +7,12 @@ import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useAuth } from "@/hooks/useAuth";
 import axiosInstance from "@/lib/axios";
-import { useRouter } from "next/navigation";
 
 interface NavbarProps {
   transparent?: boolean;
 }
 
 const Navbar = ({ transparent = false }: NavbarProps) => {
-  const router = useRouter();
   
   const pathname = usePathname();
 
@@ -170,6 +168,12 @@ const Navbar = ({ transparent = false }: NavbarProps) => {
                         ? `${address.slice(0, 6)}...${address.slice(-4)}`
                         : "Connect Wallet"}
                   </button>
+                  <Link
+                    href="/attestation"
+                    className="rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-[#080B14] transition hover:bg-white/90"
+                  >
+                    Have attestation signature  
+                  </Link>
                 </>
               ) : (
                 <>

@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import UserModel from "../model/User.model.js";
 import identityRegisterService from "../services/identityRegister.service.js";
 import addWalletService from "../services/walletAddition.service.js";
+import Verification from "../model/Verification.model.js";
 
 export async function reqAttestationForIdentityRegistration(req, res) {
     try {
@@ -14,6 +15,8 @@ export async function reqAttestationForIdentityRegistration(req, res) {
             nullifier,
             nationality,
             rarimoProof,
+            ageAbove17,
+            passportExpired,
         } = req.body;
 
         if (
@@ -22,7 +25,9 @@ export async function reqAttestationForIdentityRegistration(req, res) {
             !rootWalletAddress ||
             !nullifier ||
             !nationality ||
-            !rarimoProof
+            !rarimoProof ||
+            ageAbove17 === undefined ||
+            passportExpired === undefined
         ) {
             return res.status(400).json({
                 message: "All fields are required",
@@ -72,9 +77,11 @@ export async function reqAttestationForIdentityRegistration(req, res) {
                 userId,
                 rootWalletAddress,
                 identityHash:
-                    nullifier,
+                nullifier,
                 nationality,
                 rarimoProof,
+                ageAbove17,
+                passportExpired
             });
 
         return res.status(200).json({
@@ -136,4 +143,56 @@ export async function reqAttestationForWalletAddition(
             success: false,
         });
     }
+}
+export async function getVerificationStatus(req, res) {
+  try {
+    const userId = req.userId;
+
+    const verification = await Verification.findOne({ user: userId })
+      .sort({ createdAt: -1 })
+      .select(
+        "status registrationStatus decision score tier reasons shouldIssueAttestation attestationWallet attestationIdentityHash attestationNonce attestationDeadline attestationSignature attestationTxHash createdAt updatedAt"
+      )
+      .lean();
+
+    if (!verification) {
+      return res.status(404).json({
+        success: false,
+        message: "No verification record found",
+      });
+    }
+    console.log("Retrieved verification record:", verification);
+
+    return res.status(200).json({
+      success: true,
+      message: "Latest verification details retrieved successfully",
+      data: {
+        verificationId: verification._id,
+        status: verification.status,
+        registrationStatus: verification.registrationStatus,
+        decision: verification.decision,
+        score: verification.score,
+        tier: verification.tier,
+        reasons: verification.reasons,
+        shouldIssueAttestation: verification.shouldIssueAttestation,
+        attestation: {
+          wallet: verification.attestationWallet,
+          identityHash: verification.attestationIdentityHash,
+          nonce: verification.attestationNonce,
+          deadline: verification.attestationDeadline,
+          signature: verification.attestationSignature,
+          txHash: verification.attestationTxHash,
+        },
+        createdAt: verification.createdAt,
+        updatedAt: verification.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Verification status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
 }

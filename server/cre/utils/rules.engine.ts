@@ -1,17 +1,17 @@
-// ============================================================
-// TYPES
-// ============================================================
 
 import {
   getCountryRisk,
   type CountryRiskResult,
 } from "./countryRisk";
 
+// ============================================================
+// TYPES
+// ============================================================
+
 export interface IdentitySignals {
   nationality: string;
   ageAbove17: boolean;
   passportExpired: boolean;
-  authLevel: string;
   countryRisk: CountryRiskResult;
 }
 
@@ -33,7 +33,6 @@ export interface RiskResult {
   tier: "LOW" | "MEDIUM" | "HIGH";
 }
 
-
 // ============================================================
 // IDENTITY SIGNALS
 // ============================================================
@@ -46,10 +45,9 @@ export function normalizeIdentitySignals(
     input.citizenship ||
     "";
 
-  const nationality =
-    String(rawNationality)
-      .toUpperCase()
-      .trim();
+  const nationality = String(rawNationality)
+    .toUpperCase()
+    .trim();
 
   return {
     nationality,
@@ -64,16 +62,9 @@ export function normalizeIdentitySignals(
         ? input.passportExpired
         : false,
 
-    authLevel:
-      typeof input.authLevel === "string"
-        ? input.authLevel.toUpperCase().trim()
-        : "UNKNOWN",
-
-    // Country risk comes from countryRisk.json
     countryRisk: getCountryRisk(nationality),
   };
 }
-
 
 // ============================================================
 // IDENTITY RISK ENGINE
@@ -82,45 +73,23 @@ export function normalizeIdentitySignals(
 export function runIdentityRuleEngine(
   signals: IdentitySignals
 ): RiskResult {
-
   let score = 10;
 
-  // ----------------------------------------------------------
   // Underage
-  // ----------------------------------------------------------
-
   if (!signals.ageAbove17) {
     score += 90;
   }
 
-  // ----------------------------------------------------------
   // Expired passport
-  // ----------------------------------------------------------
-
   if (signals.passportExpired) {
     score += 80;
   }
 
-  // ----------------------------------------------------------
-  // Country risk
-  //
-  // Country risk is an additional signal.
-  // It is NOT an automatic rejection.
-  // ----------------------------------------------------------
-
+  // Country risk is additive, not an automatic rejection.
   score += signals.countryRisk.score;
-
-  // ----------------------------------------------------------
-  // Verification assurance level
-  // ----------------------------------------------------------
-
-  if (signals.authLevel !== "AA") {
-    score += 20;
-  }
 
   return buildRiskResult(score);
 }
-
 
 // ============================================================
 // WALLET SIGNALS
@@ -129,16 +98,14 @@ export function runIdentityRuleEngine(
 export function normalizeWalletSignals(
   input: Record<string, any>
 ): WalletSignals {
-
   const rawNationality =
     input.nationality ||
     input.citizenship ||
     "";
 
-  const nationality =
-    String(rawNationality)
-      .toUpperCase()
-      .trim();
+  const nationality = String(rawNationality)
+    .toUpperCase()
+    .trim();
 
   return {
     nationality,
@@ -148,36 +115,26 @@ export function normalizeWalletSignals(
         ? input.amlScore
         : null,
 
-    sanctions:
-      Boolean(input.sanctions),
-
-    pep:
-      Boolean(input.pep),
-
-    fraud:
-      Boolean(input.fraud),
+    sanctions: Boolean(input.sanctions),
+    pep: Boolean(input.pep),
+    fraud: Boolean(input.fraud),
 
     walletRisk:
       typeof input.walletRisk === "number"
         ? input.walletRisk
         : null,
 
-    mixerExposure:
-      Boolean(input.mixerExposure),
-
-    highRiskWallet:
-      Boolean(input.highRiskWallet),
+    mixerExposure: Boolean(input.mixerExposure),
+    highRiskWallet: Boolean(input.highRiskWallet),
 
     transactionRisk:
       typeof input.transactionRisk === "number"
         ? input.transactionRisk
         : null,
 
-    // Country risk comes from countryRisk.json
     countryRisk: getCountryRisk(nationality),
   };
 }
-
 
 // ============================================================
 // WALLET RISK ENGINE
@@ -186,62 +143,37 @@ export function normalizeWalletSignals(
 export function runWalletRuleEngine(
   signals: WalletSignals
 ): RiskResult {
-
   let score = 10;
 
-  // ----------------------------------------------------------
   // Sanctions
-  // ----------------------------------------------------------
-
   if (signals.sanctions) {
     score += 90;
   }
 
-  // ----------------------------------------------------------
   // Fraud
-  // ----------------------------------------------------------
-
   if (signals.fraud) {
     score += 80;
   }
 
-  // ----------------------------------------------------------
   // High-risk wallet
-  // ----------------------------------------------------------
-
   if (signals.highRiskWallet) {
     score += 60;
   }
 
-  // ----------------------------------------------------------
   // Mixer exposure
-  // ----------------------------------------------------------
-
   if (signals.mixerExposure) {
     score += 60;
   }
 
-  // ----------------------------------------------------------
-  // PEP
-  // ----------------------------------------------------------
-
+  // Politically exposed person
   if (signals.pep) {
     score += 30;
   }
 
-  // ----------------------------------------------------------
   // Country risk
-  //
-  // Country-level risk is additive.
-  // It is NOT the same thing as wallet sanctions.
-  // ----------------------------------------------------------
-
   score += signals.countryRisk.score;
 
-  // ----------------------------------------------------------
   // Wallet risk
-  // ----------------------------------------------------------
-
   if (
     signals.walletRisk !== null &&
     signals.walletRisk >= 70
@@ -249,10 +181,7 @@ export function runWalletRuleEngine(
     score += 40;
   }
 
-  // ----------------------------------------------------------
   // Transaction risk
-  // ----------------------------------------------------------
-
   if (
     signals.transactionRisk !== null &&
     signals.transactionRisk >= 70
@@ -260,10 +189,7 @@ export function runWalletRuleEngine(
     score += 40;
   }
 
-  // ----------------------------------------------------------
   // AML score
-  // ----------------------------------------------------------
-
   if (
     signals.amlScore !== null &&
     signals.amlScore >= 70
@@ -274,7 +200,6 @@ export function runWalletRuleEngine(
   return buildRiskResult(score);
 }
 
-
 // ============================================================
 // BUILD RISK RESULT
 // ============================================================
@@ -282,9 +207,7 @@ export function runWalletRuleEngine(
 function buildRiskResult(
   score: number
 ): RiskResult {
-
-  const normalizedScore =
-    Math.min(score, 100);
+  const normalizedScore = Math.min(score, 100);
 
   let tier: "LOW" | "MEDIUM" | "HIGH";
 
@@ -302,7 +225,6 @@ function buildRiskResult(
   };
 }
 
-
 // ============================================================
 // DECISION ENGINE
 // ============================================================
@@ -310,7 +232,6 @@ function buildRiskResult(
 export function decisionEngine(
   tier: "LOW" | "MEDIUM" | "HIGH"
 ): "APPROVE" | "REJECT" {
-
   return tier === "HIGH"
     ? "REJECT"
     : "APPROVE";

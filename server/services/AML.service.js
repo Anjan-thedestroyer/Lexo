@@ -1,10 +1,15 @@
+
 const AML_ENDPOINT = "https://intelapi.publicaml.org/v1/enrich";
 
 const REQUEST_TIMEOUT_MS = 10000;
+const UNKNOWN_WALLET_SCORE = 20;
 
 const screenWallet = async (walletAddress) => {
-    if (!walletAddress) {
-        throw new Error("Wallet address is required");
+    if (
+        typeof walletAddress !== "string" ||
+        !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)
+    ) {
+        throw new Error("A valid EVM wallet address is required");
     }
 
     const response = await fetch(AML_ENDPOINT, {
@@ -53,47 +58,58 @@ const screenWallet = async (walletAddress) => {
             walletAddress.toLowerCase()
     );
 
-    // No screening data: apply the hackathon's LOW default policy.
-    // Keep UNKNOWN status so the result remains auditable.
+    // Wallet not found in the AML provider's results.
     if (!walletData) {
-        console.log(
-            "[AML] No screening data found; applying LOW default tier"
-        );
-
-        return {
-            amlScore: null,
+        const result = {
+            amlScore: UNKNOWN_WALLET_SCORE,
             amlData: null,
             amlStatus: "UNKNOWN",
             riskLevel: "LOW",
-            reason: "No AML screening data available",
+            amlRiskLevel: "LOW",
+            reason: "Wallet not found in AML screening data; fallback score applied",
         };
+
+        console.log(
+            "[AML] UNKNOWN WALLET RESULT:",
+            JSON.stringify(result, null, 2)
+        );
+
+        return result;
     }
 
-    const amlScore =
-        typeof walletData.aml_score === "number"
+    const providerScore =
+        typeof walletData.aml_score === "number" &&
+        Number.isFinite(walletData.aml_score)
             ? walletData.aml_score
             : null;
 
-    const amlStatus =
-        walletData.scored === true && amlScore !== null
-            ? "SCORED"
-            : "INCONCLUSIVE";
+    const hasScore =
+        walletData.scored === true &&
+        providerScore !== null;
 
-    // Do not silently convert an absent provider score to zero.
-    const riskLevel =
-        amlStatus === "SCORED"
-            ? walletData.risk_level ?? "UNKNOWN"
-            : "LOW";
+    // A missing provider score gets the fallback, but is not
+    // misrepresented as a completed AML screening.
+    const amlScore = hasScore
+        ? providerScore
+        : UNKNOWN_WALLET_SCORE;
+
+    const amlStatus = hasScore
+        ? "SCORED"
+        : "INCONCLUSIVE";
+
+    const riskLevel = hasScore
+        ? walletData.risk_level ?? "UNKNOWN"
+        : "LOW";
 
     const result = {
         amlScore,
         amlData: walletData,
         amlStatus,
         riskLevel,
-        reason:
-            amlStatus === "SCORED"
-                ? "AML provider returned a scored result"
-                : "AML score unavailable; LOW default tier applied",
+        amlRiskLevel: riskLevel,
+        reason: hasScore
+            ? "AML provider returned a scored result"
+            : "AML score unavailable; fallback score applied",
     };
 
     console.log(

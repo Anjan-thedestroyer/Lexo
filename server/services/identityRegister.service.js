@@ -49,9 +49,9 @@ const identityRegisterService = async ({
     throw new Error("Account is not active");
   }
 
-  if (user.identityVerification === "APPROVED") {
-    throw new Error("Identity is already approved");
-  }
+  // if (user.identityVerification === "APPROVED") {
+  //   throw new Error("Identity is already approved");
+  // }
 
   // if (
   //   user.identityVerification === "PROCESSING" ||
@@ -145,29 +145,41 @@ const identityRegisterService = async ({
   }
 
   
-  const commonUpdate = {
+  
+const commonUpdate = {
     score: attestation.score ?? null,
     tier: attestation.tier ?? null,
     decision: attestation.decision,
 
     reasons:
-      attestation.reasons ??
-      (attestation.reason ? [attestation.reason] : []),
+        attestation.reasons ??
+        (attestation.reason ? [attestation.reason] : []),
 
     llmExplanation:
-      attestation.llmExplanation ?? attestation.reason ?? null,
+        attestation.llmExplanation ?? attestation.reason ?? null,
 
-    // AML assessment returned by CRE
-    amlScore: attestation.amlScore ?? null,
-    amlStatus: attestation.amlStatus ?? "UNKNOWN",
-    amlRiskLevel: attestation.amlRiskLevel ?? null,
+    // Prefer CRE's values; otherwise use the direct AML result.
+    amlScore:
+        attestation.amlScore ??
+        walletData?.amlScore ??
+        null,
 
-    // Country risk calculated by the CRE rules engine
-    countryRiskScore: attestation.countryRisk?.score ?? null,
+    amlStatus:
+        attestation.amlStatus ??
+        walletData?.amlStatus ??
+        "UNKNOWN",
+
+    amlRiskLevel:
+        attestation.amlRiskLevel ??
+        walletData?.amlRiskLevel ??
+        walletData?.riskLevel ??
+        null,
+
+    countryRiskScore:
+        attestation.countryRisk?.score ?? null,
 
     shouldIssueAttestation: false,
-  };
-
+};
 
   // 8. Manual review
   if (attestation.decision === "MANUAL_REVIEW") {

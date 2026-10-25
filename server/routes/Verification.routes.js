@@ -1,6 +1,7 @@
 import express from "express";
 
 import {
+  getAttestationAfterVerification,
   getVerificationStatus,
   reqAttestationForIdentityRegistration,
   reqAttestationForWalletAddition,
@@ -36,5 +37,6 @@ verificationRouter.get(
   authMiddleware,
   getVerificationStatus
 );
+verificationRouter.post("/re-request", authMiddleware,getAttestationAfterVerification)
 
 export default verificationRouter;

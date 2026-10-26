@@ -165,7 +165,6 @@ export async function getVerificationStatus(req, res) {
         message: "No verification record found",
       });
     }
-    console.log("Retrieved verification record:", verification);
 
     return res.status(200).json({
       success: true,

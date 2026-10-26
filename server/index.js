@@ -15,6 +15,7 @@ import arbitratorRouter from "./routes/Arbitrator.routes.js";
 import authRouter from "./routes/auth.routes.js";
 import escrowRouter from "./routes/Escrow.routes.js";
 import verificationRouter from "./routes/Verification.routes.js";
+import { startIdentityRegisterListener } from "./listener/identityRegister.listener.js";
 // Load environment variables from .env file
 dotenv.config();
 
@@ -36,7 +37,7 @@ app.use(cors({
 // startEscrowListener();
 // startArbitrationListeners();
 // startArbitratorRegistryListeners();
-
+// startIdentityRegisterListener();
 // Body Parsing Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

@@ -7,10 +7,12 @@ import {
   useDisconnect,
   useSwitchChain,
 } from "wagmi";
+import { useRouter } from "next/navigation";
 import { injected } from "wagmi/connectors";
 
 import axiosInstance from "@/lib/axios";
 import { useRegisterIdentityAttestation } from "../../hooks/useRegisterIdentityAttestation";
+import Navbar from "@/component/Navbar";
 
 type Attestation = {
   wallet: `0x${string}`;
@@ -27,7 +29,6 @@ export default function AttestationPage() {
   const { connect, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
-
   const {
     registerIdentity,
     hash,
@@ -36,7 +37,8 @@ export default function AttestationPage() {
     isSuccess,
     error: transactionError,
   } = useRegisterIdentityAttestation();
-
+    const router = useRouter();
+  
   const [attestation, setAttestation] =
     useState<Attestation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -246,6 +248,7 @@ export default function AttestationPage() {
 
       const submittedHash = await registerIdentity(attestation);
       setTxHash(submittedHash);
+      router.push("/");
     } catch (err: any) {
       setError(
         err?.shortMessage ||
@@ -260,6 +263,8 @@ export default function AttestationPage() {
   return (
     <main className="min-h-screen bg-[#080B14] px-5 pb-20 pt-32 text-white">
       <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-white/[0.03] p-6 sm:p-9">
+                  <Navbar/>
+
         <p className="text-sm font-medium tracking-wide text-white/50">
           LEXO · IDENTITY
         </p>
@@ -420,6 +425,7 @@ export default function AttestationPage() {
             className="mt-5 rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-sm leading-6 text-red-300"
           >
             <p>{error}</p>
+            
 
             {(error.toLowerCase().includes("expired") ||
               error.toLowerCase().includes("no complete attestation")) && (

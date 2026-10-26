@@ -10,7 +10,7 @@ const IDENTITY_REGISTER_ADDRESS =
 
 // Use the actual name of your existing backend verifier key.
 const PRIVATE_KEY =
-    process.env.PRIVATE_KEY;
+    process.env.CRE_VERIFIER_PRIVATE_KEY;
 
 if (!RPC_URL || !IDENTITY_REGISTER_ADDRESS || !PRIVATE_KEY) {
     throw new Error("IdentityRegister environment configuration is missing");

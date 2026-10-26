@@ -1,3 +1,4 @@
+
 import { ethers } from "ethers";
 
 import UserModel from "../model/User.model.js";
@@ -14,40 +15,36 @@ import IdentityRegisterABI from "../abi/IdentityRegister.json"
 // ============================================================
 
 const RPC_URL = process.env.RPC_URL;
-
 const IDENTITY_REGISTER_ADDRESS =
     process.env.IDENTITY_REGISTER_ADDRESS;
 
 if (!RPC_URL) {
-    throw new Error(
-        "RPC_URL is not configured"
-    );
+    throw new Error("RPC_URL is not configured");
 }
 
 if (!IDENTITY_REGISTER_ADDRESS) {
-    throw new Error(
-        "IDENTITY_REGISTER_ADDRESS is not configured"
-    );
+    throw new Error("IDENTITY_REGISTER_ADDRESS is not configured");
 }
 
-const provider =
-    new ethers.JsonRpcProvider(
-        RPC_URL
-    );
+const provider = new ethers.JsonRpcProvider(RPC_URL);
 
-const identityRegister =
-    new ethers.Contract(
-        IDENTITY_REGISTER_ADDRESS,
-        IdentityRegisterABI,
-        provider
-    );
+const identityRegister = new ethers.Contract(
+    IDENTITY_REGISTER_ADDRESS,
+    IdentityRegisterABI.abi,
+    provider
+);
 
+
+// ============================================================
+// HELPERS
+// ============================================================
 
 function getEventId(event) {
     if (!event) return null;
 
     return `${event.log.transactionHash}-${event.log.index}`;
 }
+
 async function findVerification(identityHash) {
     return Verification.findOne({
         nullifier: identityHash,
@@ -56,141 +53,131 @@ async function findVerification(identityHash) {
     });
 }
 
+/**
+ * Finds or creates one wallet safely.
+ *
+ * Both IdentityRegistered and WalletLinked can fire for
+ * the same root wallet. MongoDB's unique address index
+ * remains the final protection against duplicate documents.
+ */
+async function findOrCreateWallet(address, userId) {
+    const normalizedAddress = address.toLowerCase();
+
+    let wallet = await WalletModel.findOne({
+        address: normalizedAddress,
+    });
+
+    if (!wallet) {
+        try {
+            wallet = await WalletModel.create({
+                address: normalizedAddress,
+                user: userId,
+                status: "Active",
+                linkedAt: new Date(),
+            });
+
+            console.log(
+                `Wallet created: ${normalizedAddress}`
+            );
+        } catch (error) {
+            // Another event handler may have created it first.
+            if (error.code !== 11000) {
+                throw error;
+            }
+
+            wallet = await WalletModel.findOne({
+                address: normalizedAddress,
+            });
+
+            // If the wallet still cannot be found, preserve
+            // the original error instead of hiding it.
+            if (!wallet) {
+                throw error;
+            }
+        }
+    }
+
+    // Never silently attach another user's wallet.
+    if (
+        !wallet.user ||
+        wallet.user.toString() !== userId.toString()
+    ) {
+        throw new Error(
+            `Wallet ownership mismatch for ${normalizedAddress}`
+        );
+    }
+
+    return wallet;
+}
+
+
+// ============================================================
+// 1. IDENTITY REGISTERED
+// ============================================================
+
 async function handleIdentityRegistered(
     identityHash,
     rootWallet,
     event
 ) {
-    const eventId =
-        getEventId(event);
-
-    const normalizedWallet =
-        rootWallet.toLowerCase();
+    const eventId = getEventId(event);
+    const normalizedWallet = rootWallet.toLowerCase();
 
     console.log(
         `IdentityRegistered: ${identityHash} -> ${normalizedWallet}`
     );
 
-    // ----------------------------------------------------------
-    // Find verification
-    // ----------------------------------------------------------
-
-    const verification =
-        await findVerification(
-            identityHash
-        );
+    const verification = await findVerification(identityHash);
 
     if (!verification) {
         console.error(
             `No verification found for identity ${identityHash}`
         );
-
         return;
     }
 
-    const user =
-        await UserModel.findById(
-            verification.user
-        );
+    const user = await UserModel.findById(verification.user);
 
     if (!user) {
         console.error(
             `User not found for verification ${verification._id}`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // Check if wallet already exists
-    // ----------------------------------------------------------
+    // Race-safe: WalletLinked may be processing this address too.
+    const wallet = await findOrCreateWallet(
+        normalizedWallet,
+        user._id
+    );
 
-    let wallet =
-        await WalletModel.findOne({
-            address: normalizedWallet,
-        });
-
-    // ----------------------------------------------------------
-    // Create root wallet
-    // ----------------------------------------------------------
-
-    if (!wallet) {
-        wallet =
-            await WalletModel.create({
-                address:
-                    normalizedWallet,
-
-                user:
-                    user._id,
-
-                status:
-                    "Active",
-
-                linkedAt:
-                    new Date(),
-            });
-
-        console.log(
-            `Root wallet created: ${wallet._id}`
-        );
-    }
-
-    // ----------------------------------------------------------
-    // Add wallet to user.wallets
-    // ----------------------------------------------------------
-
-    const alreadyInUser =
-        user.wallets?.some(
-            (walletId) =>
-                walletId.toString() ===
-                wallet._id.toString()
-        );
+    const alreadyInUser = user.wallets?.some(
+        (walletId) =>
+            walletId.toString() === wallet._id.toString()
+    );
 
     if (!alreadyInUser) {
-        user.wallets.push(
-            wallet._id
-        );
+        user.wallets.push(wallet._id);
     }
 
-    // ----------------------------------------------------------
-    // Set root wallet
-    // ----------------------------------------------------------
-
-    user.rootWallet =
-        wallet._id;
-
-    // Blockchain is now the source of truth
-    user.identityVerification =
-        "VERIFIED";
-
-    user.eventId =
-        eventId;
+    user.rootWallet = wallet._id;
+    user.identityVerification = "VERIFIED";
+    user.eventId = eventId;
 
     await user.save();
-
-    // ----------------------------------------------------------
-    // Update passport
-    // ----------------------------------------------------------
 
     if (user.passport) {
         await PassportModel.findByIdAndUpdate(
             user.passport,
-            {
-                status: "Approved",
-            }
+            { status: "Approved" }
         );
     }
-
-    // ----------------------------------------------------------
-    // Store blockchain event ID
-    // ----------------------------------------------------------
 
     await Verification.findByIdAndUpdate(
         verification._id,
         {
             eventId,
-            attestationTxHash:
-                event.log.transactionHash,
+            attestationTxHash: event.log.transactionHash,
         }
     );
 
@@ -210,121 +197,61 @@ async function handleWalletLinked(
     isRoot,
     event
 ) {
-    const eventId =
-        getEventId(event);
-
-    const normalizedWallet =
-        walletAddress.toLowerCase();
+    const eventId = getEventId(event);
+    const normalizedWallet = walletAddress.toLowerCase();
 
     console.log(
         `WalletLinked: ${normalizedWallet} -> ${identityHash}`
     );
 
-    // ----------------------------------------------------------
-    // Find identity verification
-    // ----------------------------------------------------------
-
-    const verification =
-        await findVerification(
-            identityHash
-        );
+    const verification = await findVerification(identityHash);
 
     if (!verification) {
         console.error(
             `No verification found for identity ${identityHash}`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // Find user
-    // ----------------------------------------------------------
-
-    const user =
-        await UserModel.findById(
-            verification.user
-        );
+    const user = await UserModel.findById(verification.user);
 
     if (!user) {
         console.error(
             `User not found for identity ${identityHash}`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // Find/create wallet
-    // ----------------------------------------------------------
+    // Uses the same helper as IdentityRegistered.
+    const wallet = await findOrCreateWallet(
+        normalizedWallet,
+        user._id
+    );
 
-    let wallet =
-        await WalletModel.findOne({
-            address: normalizedWallet,
-        });
-
-    if (!wallet) {
-        wallet =
-            await WalletModel.create({
-                address:
-                    normalizedWallet,
-
-                user:
-                    user._id,
-
-                status:
-                    "Active",
-
-                linkedAt:
-                    new Date(),
-            });
-
-        console.log(
-            `Wallet created: ${normalizedWallet}`
-        );
-    } else if (
-        wallet.status !== "Active"
-    ) {
-        wallet.status =
-            "Active";
-
-        wallet.removedAt =
-            null;
-
-        wallet.linkedAt =
-            new Date();
+    // Restore a previously removed wallet when the contract
+    // successfully emits WalletLinked for it again.
+    if (wallet.status !== "Active") {
+        wallet.status = "Active";
+        wallet.removedAt = null;
+        wallet.linkedAt = new Date();
 
         await wallet.save();
     }
 
-    // ----------------------------------------------------------
-    // Add wallet to user's wallet list
-    // ----------------------------------------------------------
-
-    const alreadyLinked =
-        user.wallets?.some(
-            (walletId) =>
-                walletId.toString() ===
-                wallet._id.toString()
-        );
+    const alreadyLinked = user.wallets?.some(
+        (walletId) =>
+            walletId.toString() === wallet._id.toString()
+    );
 
     if (!alreadyLinked) {
-        user.wallets.push(
-            wallet._id
-        );
+        user.wallets.push(wallet._id);
     }
-
-    // ----------------------------------------------------------
-    // If event says this is root wallet
-    // ----------------------------------------------------------
 
     if (isRoot) {
-        user.rootWallet =
-            wallet._id;
+        user.rootWallet = wallet._id;
     }
 
-    user.eventId =
-        eventId;
+    user.eventId = eventId;
 
     await user.save();
 
@@ -333,71 +260,60 @@ async function handleWalletLinked(
     );
 }
 
+
+// ============================================================
+// 3. WALLET REMOVED
+// ============================================================
+
 async function handleWalletRemoved(
     identityHash,
     walletAddress,
     event
 ) {
-    const eventId =
-        getEventId(event);
+    const eventId = getEventId(event);
+    const normalizedWallet = walletAddress.toLowerCase();
 
-    const normalizedWallet =
-        walletAddress.toLowerCase();
+    console.log(`WalletRemoved: ${normalizedWallet}`);
 
-    console.log(
-        `WalletRemoved: ${normalizedWallet}`
-    );
-
-    // ----------------------------------------------------------
-    // Find wallet
-    // ----------------------------------------------------------
-
-    const wallet =
-        await WalletModel.findOne({
-            address: normalizedWallet,
-        });
+    const wallet = await WalletModel.findOne({
+        address: normalizedWallet,
+    });
 
     if (!wallet) {
         console.log(
             `Wallet ${normalizedWallet} does not exist in MongoDB`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // Mark wallet removed
-    // ----------------------------------------------------------
-
-    wallet.status =
-        "Removed";
-
-    wallet.removedAt =
-        new Date();
+    wallet.status = "Removed";
+    wallet.removedAt = new Date();
 
     await wallet.save();
-    const user =
-        await UserModel.findById(
-            wallet.user
-        );
+
+    const user = await UserModel.findById(wallet.user);
 
     if (!user) {
         console.error(
             `User not found for wallet ${normalizedWallet}`
         );
-
         return;
     }
 
-    user.wallets =
-        user.wallets.filter(
-            (walletId) =>
-                walletId.toString() !==
-                wallet._id.toString()
-        );
+    user.wallets = (user.wallets || []).filter(
+        (walletId) =>
+            walletId.toString() !== wallet._id.toString()
+    );
 
-    user.eventId =
-        eventId;
+    // Do not leave a removed wallet as the user's root wallet.
+    if (
+        user.rootWallet &&
+        user.rootWallet.toString() === wallet._id.toString()
+    ) {
+        user.rootWallet = null;
+    }
+
+    user.eventId = eventId;
 
     await user.save();
 
@@ -406,52 +322,32 @@ async function handleWalletRemoved(
     );
 }
 
-async function handleUnverified(
-    identityHash,
-    event
-) {
-    const eventId =
-        getEventId(event);
 
-    console.log(
-        `Unverified: ${identityHash}`
-    );
+// ============================================================
+// 4. UNVERIFIED
+// ============================================================
 
-    const verification =
-        await findVerification(
-            identityHash
-        );
+async function handleUnverified(identityHash, event) {
+    const eventId = getEventId(event);
+
+    console.log(`Unverified: ${identityHash}`);
+
+    const verification = await findVerification(identityHash);
 
     if (!verification) {
         console.error(
             `No verification found for ${identityHash}`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // Find user
-    // ----------------------------------------------------------
-
-    const user =
-        await UserModel.findById(
-            verification.user
-        );
+    const user = await UserModel.findById(verification.user);
 
     if (user) {
-        user.identityVerification =
-            "NOT_VERIFIED";
-
-        user.eventId =
-            eventId;
-
+        user.identityVerification = "NOT_VERIFIED";
+        user.eventId = eventId;
         await user.save();
     }
-
-    // ----------------------------------------------------------
-    // Mark verification as no longer verified
-    // ----------------------------------------------------------
 
     await Verification.findByIdAndUpdate(
         verification._id,
@@ -462,42 +358,26 @@ async function handleUnverified(
         }
     );
 
-    // ----------------------------------------------------------
-    // Update passport
-    // ----------------------------------------------------------
-
     if (verification.passport) {
         await PassportModel.findByIdAndUpdate(
             verification.passport,
-            {
-                status: "Rejected",
-            }
+            { status: "Rejected" }
         );
     }
 
-    // ----------------------------------------------------------
-    // Mark all wallets inactive/removed
-    // ----------------------------------------------------------
-
-    const wallets =
-        await WalletModel.find({
-            user: verification.user,
-        });
+    const wallets = await WalletModel.find({
+        user: verification.user,
+    });
 
     for (const wallet of wallets) {
-        wallet.status =
-            "Removed";
-
-        wallet.removedAt =
-            new Date();
-
+        wallet.status = "Removed";
+        wallet.removedAt = new Date();
         await wallet.save();
     }
 
     if (user) {
         user.wallets = [];
         user.rootWallet = null;
-
         await user.save();
     }
 
@@ -516,44 +396,26 @@ async function handleIdentityRestricted(
     isRestricted,
     event
 ) {
-    const eventId =
-        getEventId(event);
+    const eventId = getEventId(event);
 
     console.log(
         `IdentityRestricted: ${identityHash} = ${isRestricted}`
     );
 
-    const verification =
-        await findVerification(
-            identityHash
-        );
+    const verification = await findVerification(identityHash);
 
     if (!verification) {
         console.error(
             `No verification found for ${identityHash}`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // IMPORTANT
-    // ----------------------------------------------------------
-    //
-    // We do NOT change identityVerification to REJECTED.
-    //
-    // "Restricted" is different from "Rejected".
-    // The blockchain remains the source of truth.
-    //
-    // If you want MongoDB to persist this state,
-    // add an identityRestricted boolean to User.
-    // ----------------------------------------------------------
-
+    // Restriction is not the same as rejection.
+    // Preserve the existing verification status behavior.
     await Verification.findByIdAndUpdate(
         verification._id,
-        {
-            eventId,
-        }
+        { eventId }
     );
 
     console.log(
@@ -571,72 +433,55 @@ async function handleRootWalletChanged(
     newRootWallet,
     event
 ) {
-    const eventId =
-        getEventId(event);
-
-    const normalizedWallet =
-        newRootWallet.toLowerCase();
+    const eventId = getEventId(event);
+    const normalizedWallet = newRootWallet.toLowerCase();
 
     console.log(
         `RootWalletChanged: ${identityHash} -> ${normalizedWallet}`
     );
 
-    // ----------------------------------------------------------
-    // Find identity
-    // ----------------------------------------------------------
-
-    const verification =
-        await findVerification(
-            identityHash
-        );
+    const verification = await findVerification(identityHash);
 
     if (!verification) {
         console.error(
             `No verification found for ${identityHash}`
         );
-
         return;
     }
 
-    // ----------------------------------------------------------
-    // Find new root wallet
-    // ----------------------------------------------------------
-
-    const wallet =
-        await WalletModel.findOne({
-            address: normalizedWallet,
-        });
-
-    if (!wallet) {
-        console.error(
-            `New root wallet ${normalizedWallet} not found in MongoDB`
-        );
-
-        return;
-    }
-
-    // ----------------------------------------------------------
-    // Update user
-    // ----------------------------------------------------------
-
-    const user =
-        await UserModel.findById(
-            verification.user
-        );
+    const user = await UserModel.findById(verification.user);
 
     if (!user) {
         console.error(
             `User not found for ${identityHash}`
         );
-
         return;
     }
 
-    user.rootWallet =
-        wallet._id;
+    const wallet = await WalletModel.findOne({
+        address: normalizedWallet,
+    });
 
-    user.eventId =
-        eventId;
+    if (!wallet) {
+        console.error(
+            `New root wallet ${normalizedWallet} not found in MongoDB`
+        );
+        return;
+    }
+
+    // Make sure this wallet belongs to the identity's user.
+    if (
+        !wallet.user ||
+        wallet.user.toString() !== user._id.toString()
+    ) {
+        console.error(
+            `Wallet ownership mismatch for ${normalizedWallet}`
+        );
+        return;
+    }
+
+    user.rootWallet = wallet._id;
+    user.eventId = eventId;
 
     await user.save();
 
@@ -650,46 +495,27 @@ async function handleRootWalletChanged(
 // 7. VERIFIER CHANGED
 // ============================================================
 
-async function handleVerifierChanged(
-    newVerifier,
-    event
-) {
-    console.log(
-        `VerifierChanged: ${newVerifier}`
-    );
+async function handleVerifierChanged(newVerifier, event) {
+    console.log(`VerifierChanged: ${newVerifier}`);
 
     console.log(
         `Transaction: ${event.log.transactionHash}`
     );
 
-    // No MongoDB update is required.
-    //
-    // The verifier is blockchain configuration,
-    // not user data.
+    // No MongoDB user-data update is required.
 }
 
 
 // ============================================================
-// EVENT LISTENER
+// EVENT LISTENERS
 // ============================================================
 
 export function startIdentityRegisterListener() {
-
-    console.log(
-        "Starting IdentityRegister listeners..."
-    );
-
-    // ----------------------------------------------------------
-    // IdentityRegistered
-    // ----------------------------------------------------------
+    console.log("Starting IdentityRegister listeners...");
 
     identityRegister.on(
         "IdentityRegistered",
-        async (
-            identityHash,
-            rootWallet,
-            event
-        ) => {
+        async (identityHash, rootWallet, event) => {
             try {
                 await handleIdentityRegistered(
                     identityHash,
@@ -705,18 +531,9 @@ export function startIdentityRegisterListener() {
         }
     );
 
-    // ----------------------------------------------------------
-    // WalletLinked
-    // ----------------------------------------------------------
-
     identityRegister.on(
         "WalletLinked",
-        async (
-            identityHash,
-            wallet,
-            isRoot,
-            event
-        ) => {
+        async (identityHash, wallet, isRoot, event) => {
             try {
                 await handleWalletLinked(
                     identityHash,
@@ -733,17 +550,9 @@ export function startIdentityRegisterListener() {
         }
     );
 
-    // ----------------------------------------------------------
-    // WalletRemoved
-    // ----------------------------------------------------------
-
     identityRegister.on(
         "WalletRemoved",
-        async (
-            identityHash,
-            wallet,
-            event
-        ) => {
+        async (identityHash, wallet, event) => {
             try {
                 await handleWalletRemoved(
                     identityHash,
@@ -759,16 +568,9 @@ export function startIdentityRegisterListener() {
         }
     );
 
-    // ----------------------------------------------------------
-    // Unverified
-    // ----------------------------------------------------------
-
     identityRegister.on(
         "Unverified",
-        async (
-            identityHash,
-            event
-        ) => {
+        async (identityHash, event) => {
             try {
                 await handleUnverified(
                     identityHash,
@@ -783,17 +585,9 @@ export function startIdentityRegisterListener() {
         }
     );
 
-    // ----------------------------------------------------------
-    // IdentityRestricted
-    // ----------------------------------------------------------
-
     identityRegister.on(
         "IdentityRestricted",
-        async (
-            identityHash,
-            isRestricted,
-            event
-        ) => {
+        async (identityHash, isRestricted, event) => {
             try {
                 await handleIdentityRestricted(
                     identityHash,
@@ -809,17 +603,9 @@ export function startIdentityRegisterListener() {
         }
     );
 
-    // ----------------------------------------------------------
-    // RootWalletChanged
-    // ----------------------------------------------------------
-
     identityRegister.on(
         "RootWalletChanged",
-        async (
-            identityHash,
-            newRootWallet,
-            event
-        ) => {
+        async (identityHash, newRootWallet, event) => {
             try {
                 await handleRootWalletChanged(
                     identityHash,
@@ -835,16 +621,9 @@ export function startIdentityRegisterListener() {
         }
     );
 
-    // ----------------------------------------------------------
-    // VerifierChanged
-    // ----------------------------------------------------------
-
     identityRegister.on(
         "VerifierChanged",
-        async (
-            newVerifier,
-            event
-        ) => {
+        async (newVerifier, event) => {
             try {
                 await handleVerifierChanged(
                     newVerifier,

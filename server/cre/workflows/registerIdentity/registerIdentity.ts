@@ -571,7 +571,6 @@ const onHttpTrigger = async (
 
     runtime.log(`[CRE] Attestation deadline: ${deadline}`);
 
-    /* EIP-712 SIGNATURE — UNCHANGED */
 
     runtime.log("[CRE] Signing EIP-712 identity attestation");
 

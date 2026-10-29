@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/component/Navbar";
+import Link from "next/link";
 
 const backgroundImage =
   "https://wallpapers4screen.com/Uploads/5-10-2025/89989/ethereum-3d-dark-yellow-logo-4k-eth-dark-yellow-motherboard-ethereum-logo.jpg";
@@ -43,9 +44,11 @@ export default function Home() {
             </p>
 
             <div className="mt-10 flex items-center justify-center gap-4">
-              <button className="rounded-xl bg-white px-6 py-3 font-semibold text-[#080B14] transition hover:bg-white/90">
-                Create Deal
-              </button>
+              <Link href={"/deals"}>
+                <button className="rounded-xl bg-white px-6 py-3 font-semibold text-[#080B14] transition hover:bg-white/90">
+                  Create Deal
+                </button>
+              </Link>
 
               <button className="rounded-xl border border-white/10 bg-white/5 px-6 py-3 font-semibold text-white transition hover:bg-white/10">
                 Explore Lexo

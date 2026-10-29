@@ -79,7 +79,7 @@ contract WorkflowIntegrationTest is Test {
 
         arbitratorRegistry = new ArbitratorRegistry(
             address(identityRegister),
-            token
+            address(token)
         );
 
         arbitrationCourt = new ArbitrationCourt(

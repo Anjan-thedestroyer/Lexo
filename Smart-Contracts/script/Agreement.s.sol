@@ -6,13 +6,22 @@ import {AgreementRegistry} from "../src/core/AgreementRegistry.sol";
 
 contract DeployAgreementRegistry is Script {
     function run() external returns (AgreementRegistry registry) {
-        address identityRegister = vm.envAddress("IDENTITY_REGISTER_ADDRESS");
+        address identityRegister =
+            vm.envAddress("IDENTITY_REGISTER_ADDRESS");
 
-        vm.startBroadcast();
+        uint256 deployerPrivateKey =
+            vm.envUint("PRIVATE_KEY");
+
+        require(identityRegister != address(0), "Invalid IdentityRegister");
+
+        vm.startBroadcast(deployerPrivateKey);
         registry = new AgreementRegistry(identityRegister);
         vm.stopBroadcast();
 
         console2.log("AgreementRegistry deployed to:", address(registry));
-        console2.log("IdentityRegister linked:", address(registry.identityRegister()));
+        console2.log(
+            "IdentityRegister linked:",
+            address(registry.identityRegister())
+        );
     }
 }

@@ -147,7 +147,9 @@ export default function EscrowCard({
         aria-expanded={expanded}
         className="mt-5 flex w-full items-center justify-between border-t border-white/10 pt-4 text-sm font-medium text-gray-300 transition hover:text-white"
       >
-        <span>{expanded ? "Hide milestones" : "View milestones"}</span>
+        <span>
+          {expanded ? "Hide milestones" : "View milestones"}
+        </span>
 
         <ChevronDown
           size={18}
@@ -232,6 +234,15 @@ export default function EscrowCard({
         <p className="mt-1 break-all text-sm font-medium text-gray-300">
           {escrow.counterparty || "Not assigned"}
         </p>
+
+        {escrow.counterpartyEmail && (
+          <a
+            href={`mailto:${escrow.counterpartyEmail}`}
+            className="mt-1 block break-all text-sm text-indigo-400 transition hover:text-indigo-300"
+          >
+            {escrow.counterpartyEmail}
+          </a>
+        )}
       </div>
 
       {/* Agreement documents */}

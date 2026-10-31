@@ -81,6 +81,7 @@ function getEscrowStatus(status?: string): string {
   }
 }
 
+
 function mapEscrow(
   item: ApiEscrow,
   role: "payer" | "payee" | "invited",
@@ -90,10 +91,15 @@ function mapEscrow(
       ? item.agreement
       : null;
 
-  const counterparty =
-    role === "payer"
-      ? getUserLabel(item.payee)
-      : getUserLabel(item.payer);
+  const counterpartyUser =
+    role === "payer" ? item.payee : item.payer;
+
+  const counterparty = getUserLabel(counterpartyUser);
+
+  const counterpartyEmail =
+    counterpartyUser && typeof counterpartyUser !== "string"
+      ? counterpartyUser.email || null
+      : null;
 
   const milestones = (item.milestones ?? []).map((milestone) => ({
     title: milestone.title,
@@ -116,6 +122,7 @@ function mapEscrow(
       milestones[0]?.title ||
       `Escrow #${item.dealId ?? item._id.slice(-6)}`,
     counterparty,
+    counterpartyEmail,
     amount: String(item.totalAmount ?? "0"),
     token: item.token || "USDT",
     status: getEscrowStatus(item.status),
@@ -127,6 +134,7 @@ function mapEscrow(
     documentUrl: payerDocumentUrl,
   };
 }
+
 
 export default function DealsPage() {
   const [myEscrows, setMyEscrows] = useState<Escrow[]>([]);

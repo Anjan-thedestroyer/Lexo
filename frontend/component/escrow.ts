@@ -12,6 +12,7 @@ export type Escrow = {
   dealId?: number | string;
   title: string;
   counterparty: string;
+  counterpartyEmail?: string | null;
   amount: string;
   token: string;
   status: string;

@@ -141,6 +141,14 @@ function getUserLabel(
   return user.name || user.email || user._id;
 }
 
+function getUserEmail(
+  user: ApiUser | string | null | undefined,
+): string {
+  if (!user || typeof user === "string") return "";
+
+  return user.email || "";
+}
+
 function formatAmount(value: string | number): string {
   const amount = Number(value);
 
@@ -296,13 +304,6 @@ export default function PayeeAgreementPage() {
 
   /**
    * Sign Document B after submission if the contract allows it.
-   *
-   * The selected payee must match the connected wallet, and
-   * Document B must exist on-chain.
-   *
-   * This function handles its own errors so a signing failure
-   * does not incorrectly report the already-confirmed submission
-   * transaction as failed.
    */
   async function handleSignPayeeDocument(): Promise<boolean> {
     if (signing || chainLoading) return false;
@@ -547,7 +548,6 @@ export default function PayeeAgreementPage() {
       );
 
       // 5. Automatically attempt to sign Document B.
-      // This must be a separate transaction after submission.
       const signed = await handleSignPayeeDocument();
 
       if (signed) {
@@ -555,8 +555,6 @@ export default function PayeeAgreementPage() {
           "Agreement document submitted, payee request created, and Document B signed successfully.",
         );
       } else {
-        // The document submission succeeded, even if signing
-        // is blocked until the payer accepts the proposal.
         setMessage(
           "Your document and payee request were submitted successfully. Document B signing is pending; see the signing message below.",
         );
@@ -629,7 +627,7 @@ export default function PayeeAgreementPage() {
                 Escrow details
               </h2>
 
-              <div className="space-y-3 text-sm">
+              <div className="space-y-4 text-sm">
                 <Info
                   label="Escrow ID"
                   value={escrow._id}
@@ -650,15 +648,35 @@ export default function PayeeAgreementPage() {
                   value={escrow.status}
                 />
 
-                <Info
-                  label="Payer"
-                  value={getUserLabel(escrow.payer)}
-                />
+                {/* Payer */}
+                <div className="space-y-1">
+                  <Info
+                    label="Payer"
+                    value={getUserLabel(escrow.payer)}
+                  />
 
-                <Info
-                  label="Payee"
-                  value={getUserLabel(escrow.payee)}
-                />
+                  {getUserEmail(escrow.payer) && (
+                    <EmailInfo
+                      label="Payer Email"
+                      email={getUserEmail(escrow.payer)}
+                    />
+                  )}
+                </div>
+
+                {/* Payee */}
+                <div className="space-y-1">
+                  <Info
+                    label="Payee"
+                    value={getUserLabel(escrow.payee)}
+                  />
+
+                  {getUserEmail(escrow.payee) && (
+                    <EmailInfo
+                      label="Payee Email"
+                      email={getUserEmail(escrow.payee)}
+                    />
+                  )}
+                </div>
 
                 <Info
                   label="Total amount"
@@ -852,6 +870,29 @@ function Info({
       <span className="break-all font-medium sm:text-right">
         {value}
       </span>
+    </div>
+  );
+}
+
+function EmailInfo({
+  label,
+  email,
+}: {
+  label: string;
+  email: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-4">
+      <span className="text-xs text-gray-500">
+        {label}
+      </span>
+
+      <a
+        href={`mailto:${email}`}
+        className="break-all text-sm text-violet-400 transition hover:text-violet-300 sm:text-right"
+      >
+        {email}
+      </a>
     </div>
   );
 }

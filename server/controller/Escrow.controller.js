@@ -387,7 +387,7 @@ export const approveMilestoneController = async (req, res) => {
             (milestone) => milestone.status === "RELEASED"
         );
 
-        escrow.status = allReleased ? "COMPLETED" : "IN_PROGRESS";
+        escrow.status = allReleased ? "COMPLETED" : "BOTH_SIGNED";
 
         if (req.body.txHash) {
             escrow.transactions.released = req.body.txHash;

@@ -58,22 +58,6 @@ const addWalletService = async ({
   }
 
   // ==========================================================
-  // 4. CHECK WALLET DUPLICATE
-  // ==========================================================
-
-  const existingWallet =
-    await Wallet.findOne({
-      address:
-        normalizedWallet,
-    });
-
-  if (existingWallet) {
-    throw new Error(
-      "Wallet is already registered"
-    );
-  }
-
-  // ==========================================================
   // 5. GET EXISTING VERIFIED IDENTITY
   // ==========================================================
 

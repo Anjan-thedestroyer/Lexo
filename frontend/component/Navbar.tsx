@@ -150,10 +150,10 @@ const Navbar = ({ transparent = false }: NavbarProps) => {
             </Link>
 
             <Link
-              href="/how-it-works"
+              href="/add-wallet"
               className={linkClass("/how-it-works")}
             >
-              How It Works
+              Add wallet
             </Link>
           </div>
 

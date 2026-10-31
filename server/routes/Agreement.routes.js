@@ -10,7 +10,13 @@ import {
   getSigningDigest,
   getCandidateSigningDigest,
   getDocumentHashByDeal,
+  saveEscrowDocument,
+  getPayeeEscrows,
+  getPayerEscrows,
+  getInvitedEscrows,
 } from "../controller/Agreement.controller.js";
+import authMiddleware from "../middleware/auth.js";
+import { getInvitedDeals } from "../controller/Escrow.controller.js";
 
 const agreementRoutes = express.Router();
 
@@ -84,5 +90,17 @@ agreementRoutes.get(
   "/:dealId/document-hashes",
   getDocumentHashByDeal
 );
+agreementRoutes.post(
+  "/sync",authMiddleware,saveEscrowDocument
+)
+agreementRoutes.get(
+  "/invited",authMiddleware,getInvitedEscrows
+)
+agreementRoutes.get(
+  "/payee",authMiddleware,getPayeeEscrows
+)
+agreementRoutes.get(
+  "/created",authMiddleware,getPayerEscrows
+)
 
 export default agreementRoutes;

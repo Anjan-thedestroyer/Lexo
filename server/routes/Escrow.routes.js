@@ -11,7 +11,10 @@ import {
   getPendingWithdrawal,
   getDispute,
   getNonce,
+  approveMilestoneController,
+  getActiveEscrows,
 } from "../controller/Escrow.controller.js";
+import authMiddleware from "../middleware/auth.js";
 
 const escrowRouter = express.Router();
 
@@ -75,5 +78,12 @@ escrowRouter.get(
   "/nonce/:wallet",
   getNonce
 );
+escrowRouter.post(
+  "/approve-milestone",
+    authMiddleware,
+    approveMilestoneController
+);
+escrowRouter.get("/active",authMiddleware,getActiveEscrows)
+
 
 export default escrowRouter;

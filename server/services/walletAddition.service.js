@@ -1,3 +1,4 @@
+
 import UserModel from "../model/User.model.js";
 import Wallet from "../model/Wallet.model.js";
 import Verification from "../model/Verification.model.js";
@@ -49,7 +50,7 @@ const addWalletService = async ({
 
   if (
     user.identityVerification !==
-    "APPROVED"
+    "VERIFIED"
   ) {
     throw new Error(
       "User identity has not been approved"
@@ -166,23 +167,33 @@ const addWalletService = async ({
       "CRE returned incomplete wallet attestation"
     );
   }
+
+  // ==========================================================
+  // 11. RETURN ATTESTATION
+  // Wallet document is created after on-chain confirmation.
+  // ==========================================================
+
   return {
     userId:
       user._id,
-    walletId:
-      wallet._id,
+
     identityVerification:
       "APPROVED",
+
     attestationPayload: {
       wallet:
         normalizedWallet,
+
       // SAME RARIMO NULLIFIER
       identityHash:
         attestation.identityHash,
+
       nonce:
         attestation.nonce,
+
       deadline:
         attestation.deadline,
+
       signature:
         attestation.signature,
     },

@@ -1,6 +1,4 @@
-import { strict } from "assert";
 import mongoose from "mongoose";
-import { type } from "os";
 
 const MilestoneSchema = new mongoose.Schema(
     {
@@ -67,7 +65,7 @@ const EscrowSchema = new mongoose.Schema(
         agreement: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Agreement",
-            required: true,
+            default: null,
         },
 
         dealId:{
@@ -84,7 +82,7 @@ const EscrowSchema = new mongoose.Schema(
         payee: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true,
+            default: null,
         },
 
         totalAmount: {
@@ -94,15 +92,14 @@ const EscrowSchema = new mongoose.Schema(
 
         token: {
             type: String,
-            default: "ETH",
+            default: "USDT",
         },
 
         status: {
             type: String,
             enum: [
                 "CREATED",
-                "FUNDED",
-                "IN_PROGRESS",
+                "BOTH_SIGNED",
                 "COMPLETED",
                 "DISPUTED",
                 "REFUNDED",

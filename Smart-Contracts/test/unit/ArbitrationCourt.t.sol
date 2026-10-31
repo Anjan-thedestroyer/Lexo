@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Test, console} from "forge-std/Test.sol";
 
 // Target Contract
-import {ArbitrationCourt} from "../../src/arbitration/ArbitrationCourt.sol";
+import {ArbitrationCourt} from "../../src/Future-Expansions/ArbitrationCourt.sol";
 import {IIdentityRegister} from "../../src/interfaces/IIdentityRegister.sol";
 import {IArbitrationRegister} from "../../src/interfaces/IArbitrationRegister.sol";
 import {IEscrowCore} from "../../src/interfaces/IEscrowCore.sol";

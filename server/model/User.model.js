@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
                 ref: "Wallet",
             },
         ],
+        invitation: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "Escrow",
+            },
+        ],
 
         rootWallet: {
             type: mongoose.Schema.Types.ObjectId,

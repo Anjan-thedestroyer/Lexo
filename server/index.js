@@ -6,16 +6,12 @@ import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import {connectDB} from "./config/connectDB.js";
 import CoreAgreementRouter from "./routes/CoreAgreement.routes.js";
-import { startAgreementListeners } from "./listener/agreement.listener.js";
-import { startEscrowListener } from "./listener/EscrowCore.listener.js";
-import { startArbitrationListeners } from "./listener/arbitration.listener.js";
-import { startArbitratorRegistryListeners } from "./listener/arbitratorRegistry.listener.js";
-import arbitrationRouter from "./routes/Arbitration.routes.js";
-import arbitratorRouter from "./routes/Arbitrator.routes.js";
 import authRouter from "./routes/auth.routes.js";
 import escrowRouter from "./routes/Escrow.routes.js";
 import verificationRouter from "./routes/Verification.routes.js";
 import { startIdentityRegisterListener } from "./listener/identityRegister.listener.js";
+import agreementRoutes from "./routes/Agreement.routes.js";
+import reqRouter from "./routes/Req.routes.js";
 // Load environment variables from .env file
 dotenv.config();
 
@@ -35,9 +31,7 @@ app.use(cors({
 
 // startAgreementListeners();
 // startEscrowListener();
-// startArbitrationListeners();
-// startArbitratorRegistryListeners();
-// startIdentityRegisterListener();
+startIdentityRegisterListener();
 // Body Parsing Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -57,11 +51,11 @@ app.get("/health", (req, res) => {
 // app.use("/api/v1/agreements", agreementRoutes);
 
 app.use("/api/core-agreement",CoreAgreementRouter);
-app.use("/api/arbitration",arbitrationRouter)
-app.use("/api/arbitrator",arbitratorRouter)
 app.use("/api/auth",authRouter);
 app.use("/api/escrow",escrowRouter)
 app.use("/api/verification",verificationRouter)
+app.use("/api/agreement",agreementRoutes)
+app.use("/api/req",reqRouter)
 // 404 Handler for undefined routes
 app.use((req, res) => {
   res.status(404).json({

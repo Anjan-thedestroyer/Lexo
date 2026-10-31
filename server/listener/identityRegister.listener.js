@@ -191,6 +191,7 @@ async function handleIdentityRegistered(
 // 2. WALLET LINKED
 // ============================================================
 
+
 async function handleWalletLinked(
     identityHash,
     walletAddress,
@@ -222,14 +223,12 @@ async function handleWalletLinked(
         return;
     }
 
-    // Uses the same helper as IdentityRegistered.
     const wallet = await findOrCreateWallet(
         normalizedWallet,
         user._id
     );
 
-    // Restore a previously removed wallet when the contract
-    // successfully emits WalletLinked for it again.
+    // Restore a previously removed or inactive wallet.
     if (wallet.status !== "Active") {
         wallet.status = "Active";
         wallet.removedAt = null;
@@ -238,27 +237,33 @@ async function handleWalletLinked(
         await wallet.save();
     }
 
-    const alreadyLinked = user.wallets?.some(
-        (walletId) =>
-            walletId.toString() === wallet._id.toString()
-    );
-
-    if (!alreadyLinked) {
-        user.wallets.push(wallet._id);
-    }
+    const update = {
+        $addToSet: {
+            wallets: wallet._id,
+        },
+        $set: {
+            eventId,
+        },
+    };
 
     if (isRoot) {
-        user.rootWallet = wallet._id;
+        update.$set.rootWallet = wallet._id;
     }
 
-    user.eventId = eventId;
-
-    await user.save();
+    await UserModel.findByIdAndUpdate(
+        user._id,
+        update,
+        {
+            new: true,
+            upsert: false,
+        }
+    );
 
     console.log(
-        `Wallet ${normalizedWallet} synchronized`
+        `Wallet ${normalizedWallet} synchronized successfully`
     );
 }
+
 
 
 // ============================================================

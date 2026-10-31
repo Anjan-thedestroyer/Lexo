@@ -1,5 +1,8 @@
+
 import { ethers } from "ethers";
-import AgreementRegistryABI from "../abi/AgreementRegistry.json" with { type: "json" };
+import AgreementRegistryABI from "../abi/AgreementRegistry.json" with {
+    type: "json",
+};
 
 import EscrowModel from "../model/Escrow.model.js";
 import AgreementModel from "../model/Agreement.model.js";
@@ -7,259 +10,229 @@ import AgreementModel from "../model/Agreement.model.js";
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 
 const agreementRegistry = new ethers.Contract(
-  process.env.AGREEMENT_REGISTRY_ADDRESS,
-  AgreementRegistryABI.abi,
-  provider
+    process.env.AGREEMENT_REGISTRY_ADDRESS,
+    AgreementRegistryABI.abi,
+    provider
 );
 
 const DOC_A = 0;
 const DOC_B = 1;
 
-/* HELPERS */
+function getEventMetadata(event) {
+    const log = event?.log ?? event;
 
-function normalizeAddress(address) {
-  return address ? address.toLowerCase() : "";
-}
-
-async function findEscrowByBlockchainDealId(dealId) {
-  return await EscrowModel.findOne({
-    blockchainDealId: dealId.toString(),
-  }).select("_id");
-}
-
-function getEventMetadata(eventPayload) {
-  const log = eventPayload.log || eventPayload;
-  return {
-    txHash: log.transactionHash,
-    blockNumber: log.blockNumber,
-  };
-}
-
-/* 1. DOCUMENT SUBMITTED */
-
-async function handleDocumentSubmitted(dealId, docIndex, submitter, contentHash, eventPayload) {
-  try {
-    const blockchainDealId = dealId.toString();
-    const { txHash, blockNumber } = getEventMetadata(eventPayload);
-
-    const escrow = await findEscrowByBlockchainDealId(blockchainDealId);
-    if (!escrow) {
-      console.warn(`Escrow not found for dealId ${blockchainDealId}`);
-      return;
-    }
-
-    const numericDocIndex = Number(docIndex);
-
-    if (numericDocIndex === DOC_A) {
-      await AgreementModel.updateOne(
-        { dealId: escrow._id },
-        {
-          $set: {
-            contentHash,
-            payerDocumentStatus: "CONFIRMED",
-            payerWallet: normalizeAddress(submitter),
-            payerDocumentTxHash: txHash,
-          },
-        }
-      );
-      console.log(`Payer document confirmed for deal ${blockchainDealId}`);
-      return;
-    }
-
-    if (numericDocIndex === DOC_B) {
-      const wallet = normalizeAddress(submitter);
-
-      const result = await AgreementModel.updateOne(
-        {
-          dealId: escrow._id,
-          "candidatePayees.wallet": { $ne: wallet },
-        },
-        {
-          $push: {
-            candidatePayees: {
-              wallet,
-              documentHash: contentHash,
-              status: "PENDING",
-              transactionHash: txHash,
-              blockNumber,
-              submittedAt: new Date(),
-            },
-          },
-        }
-      );
-
-      if (result.matchedCount === 0) {
-        console.log(`Candidate already exists: ${wallet}`);
-        return;
-      }
-
-      console.log(`Payee candidate document recorded for deal ${blockchainDealId}`);
-    }
-  } catch (error) {
-    console.error("DocumentSubmitted listener error:", error);
-  }
-}
-
-/* 2. PAYEE AGREEMENT REJECTED */
-
-async function handlePayeeAgreementRejected(dealId, candidatePayee, eventPayload) {
-  try {
-    const blockchainDealId = dealId.toString();
-    const wallet = normalizeAddress(candidatePayee);
-    const { txHash } = getEventMetadata(eventPayload);
-
-    const escrow = await findEscrowByBlockchainDealId(blockchainDealId);
-    if (!escrow) return;
-
-    const result = await AgreementModel.updateOne(
-      {
-        dealId: escrow._id,
-        "candidatePayees.wallet": wallet,
-      },
-      {
-        $set: {
-          "candidatePayees.$.status": "REJECTED",
-          "candidatePayees.$.rejectedAt": new Date(),
-          "candidatePayees.$.rejectionTxHash": txHash,
-        },
-      }
-    );
-
-    if (result.modifiedCount === 0) {
-      console.warn(`Candidate ${wallet} not found in MongoDB`);
-      return;
-    }
-
-    console.log(`Payee ${wallet} marked as REJECTED`);
-  } catch (error) {
-    console.error("PayeeAgreementRejected listener error:", error);
-  }
-}
-
-/* 3. PAYEE AGREEMENT ACCEPTED */
-
-async function handlePayeeAgreementAccepted(dealId, selectedPayee, contentHash, eventPayload) {
-  try {
-    const blockchainDealId = dealId.toString();
-    const wallet = normalizeAddress(selectedPayee);
-    const { txHash } = getEventMetadata(eventPayload);
-
-    const escrow = await findEscrowByBlockchainDealId(blockchainDealId);
-    if (!escrow) return;
-
-    const result = await AgreementModel.updateOne(
-      {
-        dealId: escrow._id,
-        "candidatePayees.wallet": wallet,
-      },
-      {
-        $set: {
-          payeeWallet: wallet,
-          payeeDocumentStatus: "CONFIRMED",
-          payeeAgreementTxHash: txHash,
-          payeeDocumentHash: contentHash,
-          "candidatePayees.$.status": "ACCEPTED",
-          "candidatePayees.$.acceptedAt": new Date(),
-        },
-      }
-    );
-
-    if (result.matchedCount === 0) {
-      console.warn(`Candidate ${wallet} not found for deal ${blockchainDealId}`);
-      return;
-    }
-
-    console.log(`Payee ${wallet} accepted for deal ${blockchainDealId}`);
-  } catch (error) {
-    console.error("PayeeAgreementAccepted listener error:", error);
-  }
-}
-
-/* 4. DOCUMENT SIGNED */
-
-async function handleDocumentSigned(dealId, docIndex, signer, eventPayload) {
-  try {
-    const blockchainDealId = dealId.toString();
-    const { txHash } = getEventMetadata(eventPayload);
-
-    const escrow = await findEscrowByBlockchainDealId(blockchainDealId);
-    if (!escrow) return;
-
-    const [contentHash, payerSigned, payeeSigned] = await agreementRegistry.getDocumentStatus(
-      dealId,
-      docIndex
-    );
-
-    const updateFields = {
-      payerSigned,
-      payeeSigned,
-      lastSigningTxHash: txHash,
+    return {
+        txHash: log?.transactionHash ?? null,
+        blockNumber: log?.blockNumber ?? null,
     };
-
-    if (Number(docIndex) === DOC_A) {
-      updateFields.contentHash = contentHash;
-    } else if (Number(docIndex) === DOC_B) {
-      updateFields.payeeDocumentHash = contentHash;
-    }
-
-    await AgreementModel.updateOne(
-      { dealId: escrow._id },
-      { $set: updateFields }
-    );
-
-    console.log(`Signing state synchronized for deal ${blockchainDealId}`);
-  } catch (error) {
-    console.error("DocumentSigned listener error:", error);
-  }
 }
 
-/* 5. BOTH DOCUMENTS SIGNED */
+async function findAgreementByDealId(dealId) {
+    // Agreement.dealId is a MongoDB ObjectId reference to Escrow.
+    // Escrow.dealId is the numeric blockchain ID.
+    const escrow = await EscrowModel.findOne({
+        dealId: dealId.toString(),
+    }).select("_id agreement");
 
-async function handleBothDocumentsSigned(dealId, eventPayload) {
-  try {
-    const blockchainDealId = dealId.toString();
-    const { txHash, blockNumber } = getEventMetadata(eventPayload);
-
-    const escrow = await findEscrowByBlockchainDealId(blockchainDealId);
-    if (!escrow) return;
-
-    const fullySigned = await agreementRegistry.haveBothSigned(dealId);
-    if (!fullySigned) {
-      console.warn("BothDocumentsSigned event received, but on-chain state shows incomplete signatures.");
-      return;
+    if (!escrow) {
+        console.warn(`Escrow not found for blockchain deal ${dealId}`);
+        return null;
     }
 
-    await AgreementModel.updateOne(
-      { dealId: escrow._id },
-      {
-        $set: {
-          payerSigned: true,
-          payeeSigned: true,
-          agreementFullySigned: true,
-          status: "SIGNED",
-          fullySignedTxHash: txHash,
-          fullySignedBlockNumber: blockNumber,
-        },
-      }
-    );
+    if (escrow.agreement) {
+        return AgreementModel.findById(escrow.agreement);
+    }
 
-    console.log(`Agreement ${blockchainDealId} marked SIGNED`);
-  } catch (error) {
-    console.error("BothDocumentsSigned listener error:", error);
-  }
+    // Fallback for records where the agreement exists but
+    // the escrow.agreement reference has not been populated.
+    return AgreementModel.findOne({ dealId: escrow._id });
 }
 
-/* START LISTENERS */
+async function syncDocumentSigning(dealId, event) {
+    try {
+        const agreement = await findAgreementByDealId(dealId);
+        if (!agreement) return;
+
+        const fullySigned = await agreementRegistry.haveBothSigned(dealId);
+
+        agreement.payerSigned = fullySigned;
+        agreement.payeeSigned = fullySigned;
+
+        if (fullySigned) {
+            agreement.status = "SIGNED";
+        } else if (agreement.status === "DRAFT") {
+            agreement.status = "PENDING_SIGNATURE";
+        }
+
+        await agreement.save();
+
+        console.log("Agreement signing state synchronized", {
+            dealId: dealId.toString(),
+            agreementId: agreement._id.toString(),
+            ...getEventMetadata(event),
+        });
+    } catch (error) {
+        console.error("syncDocumentSigning:", error);
+    }
+}
+
+async function handleDocumentSubmitted(
+    dealId,
+    docIndex,
+    submitter,
+    contentHash,
+    event
+) {
+    try {
+        const index = Number(docIndex);
+
+        if (![DOC_A, DOC_B].includes(index)) {
+            console.warn("Unknown document index:", index);
+            return;
+        }
+
+        const agreement = await findAgreementByDealId(dealId);
+        if (!agreement) return;
+
+        // The model only has one contentHash/contentLink pair.
+        // Only document A (the payer document) is stored here.
+        // Document B must not overwrite the payer's document.
+        if (index === DOC_A) {
+            agreement.contentHash = contentHash;
+
+            if (agreement.status === "DRAFT") {
+                agreement.status = "PENDING_SIGNATURE";
+            }
+
+            await agreement.save();
+        }
+
+        console.log("DocumentSubmitted synchronized", {
+            dealId: dealId.toString(),
+            index,
+            submitter,
+            contentHash,
+            ...getEventMetadata(event),
+        });
+    } catch (error) {
+        console.error("handleDocumentSubmitted:", error);
+    }
+}
+
+async function handlePayeeAgreementRejected(
+    dealId,
+    candidatePayee,
+    event
+) {
+    console.log("Payee agreement rejected on-chain", {
+        dealId: dealId.toString(),
+        candidatePayee,
+        ...getEventMetadata(event),
+        note: "No rejection fields exist in AgreementSchema",
+    });
+}
+
+async function handlePayeeAgreementAccepted(
+    dealId,
+    selectedPayee,
+    contentHash,
+    event
+) {
+    try {
+        const agreement = await findAgreementByDealId(dealId);
+        if (!agreement) return;
+
+        // Never assign selectedPayee directly to agreement.payee:
+        // it is a wallet address, not a MongoDB User ObjectId.
+        // Resolve the user separately if the product requires this.
+
+        // Do not overwrite the payer's document hash with the payee's.
+        console.log("Payee agreement accepted on-chain", {
+            dealId: dealId.toString(),
+            selectedPayee,
+            contentHash,
+            agreementId: agreement._id.toString(),
+            ...getEventMetadata(event),
+        });
+    } catch (error) {
+        console.error("handlePayeeAgreementAccepted:", error);
+    }
+}
+
+async function handleDocumentSigned(
+    dealId,
+    docIndex,
+    signer,
+    event
+) {
+    const index = Number(docIndex);
+
+    if (![DOC_A, DOC_B].includes(index)) {
+        console.warn("Unknown document index:", index);
+        return;
+    }
+
+    console.log("DocumentSigned event", {
+        dealId: dealId.toString(),
+        index,
+        signer,
+        ...getEventMetadata(event),
+    });
+
+    // Use the contract's overall signing state to synchronize
+    // the two Boolean fields in the current Agreement schema.
+    await syncDocumentSigning(dealId, event);
+}
+
+async function handleBothDocumentsSigned(dealId, event) {
+    try {
+        const fullySigned = await agreementRegistry.haveBothSigned(dealId);
+
+        if (!fullySigned) {
+            console.warn("Contract reports incomplete signatures:", dealId.toString());
+            return;
+        }
+
+        const agreement = await findAgreementByDealId(dealId);
+        if (!agreement) return;
+
+        agreement.payerSigned = true;
+        agreement.payeeSigned = true;
+        agreement.status = "SIGNED";
+
+        await agreement.save();
+
+        console.log("Agreement marked SIGNED", {
+            dealId: dealId.toString(),
+            agreementId: agreement._id.toString(),
+            ...getEventMetadata(event),
+        });
+    } catch (error) {
+        console.error("handleBothDocumentsSigned:", error);
+    }
+}
+
+const handlers = {
+    DocumentSubmitted: handleDocumentSubmitted,
+    PayeeAgreementRejected: handlePayeeAgreementRejected,
+    PayeeAgreementAccepted: handlePayeeAgreementAccepted,
+    DocumentSigned: handleDocumentSigned,
+    BothDocumentsSigned: handleBothDocumentsSigned,
+};
 
 export function startAgreementListeners() {
-  console.log("Starting AgreementRegistry listeners...");
-  console.log(`AgreementRegistry address: ${process.env.AGREEMENT_REGISTRY_ADDRESS}`);
+    for (const [eventName, handler] of Object.entries(handlers)) {
+        agreementRegistry.off(eventName, handler);
+        agreementRegistry.on(eventName, handler);
+    }
 
-  agreementRegistry.on("DocumentSubmitted", handleDocumentSubmitted);
-  agreementRegistry.on("PayeeAgreementRejected", handlePayeeAgreementRejected);
-  agreementRegistry.on("PayeeAgreementAccepted", handlePayeeAgreementAccepted);
-  agreementRegistry.on("DocumentSigned", handleDocumentSigned);
-  agreementRegistry.on("BothDocumentsSigned", handleBothDocumentsSigned);
+    console.log("AgreementRegistry listeners running.");
+}
 
-  console.log("AgreementRegistry listeners running.");
+export async function stopAgreementListeners() {
+    for (const [eventName, handler] of Object.entries(handlers)) {
+        agreementRegistry.off(eventName, handler);
+    }
+
+    console.log("AgreementRegistry listeners stopped.");
 }

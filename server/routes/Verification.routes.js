@@ -2,6 +2,7 @@ import express from "express";
 
 import {
   getAttestationAfterVerification,
+  getManualReviewUsers,
   getVerificationStatus,
   reqAttestationForIdentityRegistration,
   reqAttestationForWalletAddition,
@@ -31,6 +32,10 @@ verificationRouter.post(
   authMiddleware,
   reqAttestationForWalletAddition
 );
+
+verificationRouter.get(
+  "/manual",getManualReviewUsers
+)
 
 verificationRouter.get(
   "/status",

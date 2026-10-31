@@ -1,79 +1,188 @@
-## IdentityRegister
+# Lexo Smart Contracts
 
-**What it does:** maps one real-world identity (derived from a passport NFC scan) to one or more Web3 wallets, and lets Lexo's backend ban every wallet under an identity at once if that person commits fraud or defaults.
+Solidity contracts behind **Lexo**, an identity-aware platform for programmable legal agreements. They connect a verified identity registry, a platform-terms acceptance contract, an on-chain agreement registry and milestone-based escrow.
 
-### Why it exists
+> **Status:** hackathon prototype on Ethereum Sepolia. The contracts are **unaudited** and use a mock stablecoin. Do not use them with real funds.
 
-Without this, a bad actor banned on one wallet could just register a new wallet and keep going. `IdentityRegister` closes that loop by tying every wallet back to the same underlying identity hash — so a ban on the person, not just the wallet, actually sticks.
+## Contents
 
-### How registration works (attestation flow)
-
-The contract never touches passport data directly. Instead:
-
-1. **Off-chain:** the user scans their passport NFC chip. Lexo's backend verifies it (Passive Authentication against the ICAO master list) and runs a sanctions screening check.
-2. **Off-chain:** if both pass, the backend signs an **EIP-712 attestation** — a message saying "this wallet may register under this identity hash, valid until this deadline" — using its private `verifier` key. No transaction, no gas cost yet.
-3. **On-chain:** the user's own wallet calls `registerWithAttestation()`, attaching that signature. The contract recovers the signer, checks it matches the trusted `verifier` address, and links the wallet.
-
-Because the user's own wallet submits the transaction, `msg.sender` *is* the wallet being registered — this proves ownership for free, with no separate signature-based proof-of-ownership step needed.
-
-### Key concepts
-
-| Concept | What it means here |
+| Contract | Purpose |
 |---|---|
-| **Identity hash** | `keccak256(passport public key + server-side pepper)` — a stable pseudonym for one person, generated off-chain. The contract only ever sees the hash, never the passport data. |
-| **Root wallet** | The first wallet registered under an identity hash. Extra-protected — it can't be removed directly, only replaced via `changeRootWallet`. |
-| **Restriction (ban)** | Set via `restrict()`. Stored *independently* of the rest of an identity's state, so it survives even a full `unverify()` purge — a banned identity can't simply reset its way out of a ban. |
-| **Verification** | An identity becomes `verified` the moment its root wallet registers. `unverify()` is a hard purge (wipes all linked wallets); recovering means registering fresh with a new attestation. |
-| **Attestation replay protection** | Every attestation is signed over a specific wallet, identity hash, deadline, and nonce. A wallet can only ever register once, and its nonce increments on use — so a signature can never be redeemed twice. |
+| `CoreAgreement` | Mock platform terms. Stores the hash of the terms document and records when each wallet accepted it. |
+| `IdentityRegister` | Maps a verified `identityHash` to up to 5 wallets. Registration and wallet linking require an EIP-712 attestation signed by a trusted verifier. |
+| `AgreementRegistry` | Stores document hashes for each deal, verifies EIP-712 signatures from payer and payee, and tells escrow when both parties have signed. |
+| `EscrowCore` | Holds ERC-20 funds for a deal and releases them milestone by milestone. |
+| `MockUSDT` | 6-decimal test token with a faucet, used only for development. |
 
-### What downstream contracts should do
+## Deployed addresses (Sepolia, chain ID 11155111)
 
-Any contract that needs to gate an action on identity (most importantly `EscrowCore`) should call:
+| Contract | Address |
+|---|---|
+| IdentityRegister | [`0x7c827d0293b7ed891ed589542d1d11450590812d`](https://sepolia.etherscan.io/address/0x7c827d0293b7ed891ed589542d1d11450590812d) |
+| CoreAgreement | [`0x7b283E9B12f35F5373CDE81Ca0C4024d0F417bE8`](https://sepolia.etherscan.io/address/0x7b283E9B12f35F5373CDE81Ca0C4024d0F417bE8) |
+| AgreementRegistry | [`0x0BbDA7e77Fcd74cB21Bc0368628f061e89faC148`](https://sepolia.etherscan.io/address/0x0BbDA7e77Fcd74cB21Bc0368628f061e89faC148) |
+| EscrowCore | [`0xC8eB82Ed3148d5E7C6E9dE3F49EB2C14977508B7`](https://sepolia.etherscan.io/address/0xC8eB82Ed3148d5E7C6E9dE3F49EB2C14977508B7) |
+| MockUSDT | [`0x888dd7Bc9f61E0060D792ff6a187FD475dd9970A`](https://sepolia.etherscan.io/address/0x888dd7Bc9f61E0060D792ff6a187FD475dd9970A) |
+| Authorized verifier | [`0xb745E488D1F2BECb5DcF0404BCDc325093B62F59`](https://sepolia.etherscan.io/address/0xb745E488D1F2BECb5DcF0404BCDc325093B62F59) |
 
-```solidity
-IdentityRegister(registryAddress).isVerified(wallet)
+## How the contracts fit together
+
+```text
+                 signAgreement()
+   Wallet ─────────────────────────────▶ CoreAgreement
+     │                                        ▲
+     │ registerIdentityWithAttestation()      │ hasSignedAgreement()
+     ▼                                        │
+ IdentityRegister ────────────────────────────┘
+     ▲  isVerified()                 ▲  isVerified()
+     │                               │
+ AgreementRegistry ◀── submitPayerDocument ── EscrowCore
+     │   haveBothSigned()  ───────────────────▶   │
+     └──── syncPayeeFromRegistry() ───────────────┘
 ```
 
-right before the action (deposit, release, etc.) — never cache this result. It's a live check: verified *and* not restricted, checked fresh every time.
+- An off-chain verifier (the Chainlink CRE workflow plus the backend) evaluates identity and wallet risk. For approved cases it signs an EIP-712 attestation, and the wallet submits it to `IdentityRegister`.
+- `EscrowCore` and `AgreementRegistry` both rely on `IdentityRegister.isVerified` so that only verified, unrestricted wallets can use them.
+- `EscrowCore` releases funds only when `AgreementRegistry.haveBothSigned` returns true.
 
-### Known limitations (documented, not hidden)
+## Contract details
 
-- **One passport, one bad actor with a second passport isn't stopped by this contract alone.** Sybil resistance here is per-identity-hash, not cross-identity collusion detection.
-- **`unverify()` is a hard reset**, not a pause. There's no "temporarily suspend, restore without re-onboarding" state — if that's needed later, it would require a new intermediate status separate from `verified`/`restricted`.
-- **Passport chip cloning resistance depends on the issuing document supporting Active/Chip Authentication** — Passive Authentication (which all ICAO 9303 passports support) proves data integrity, not clone-resistance. This is a limitation of the off-chain verification step, not the contract, but worth stating plainly rather than overclaiming "unclonable."
+### CoreAgreement
 
-## EscrowCore
+A simple on-chain acceptance of platform terms.
 
-**What it does:** holds ERC20 funds for a milestone-based deal between two verified parties, releasing each milestone's payment the moment the payer approves it. Every party involved must currently pass `IdentityRegister.isVerified()` — the two contracts are meant to be deployed together.
+- `agreementHash` (immutable): hash of the terms document, set at deployment (must be non-zero).
+- `publishedAt` (immutable): deployment timestamp.
+- `signAgreement()`: records `block.timestamp` for `msg.sender`. Each address can sign once (`AlreadySigned`).
+- `hasSignedAgreement(address)`: true once the address has signed.
 
-### How a deal works
+This is a transaction-based acceptance by the sending wallet, not an EIP-712 signature. The terms are a demonstration document, not a finalized legal agreement.
 
-1. **Create:** the payer calls `createDeal()` with a payee address, a token, and a list of milestone descriptions + amounts. The full total is pulled from the payer immediately and held by the contract. Both payer and payee must be verified identities at this point, or the call reverts.
-2. **Release:** the payer calls `approveAndReleaseMilestone()` once a milestone is satisfied. That milestone's amount is credited to the payee's withdrawable balance immediately — milestones release one at a time, in order, not all at once.
-3. **Withdraw:** the payee (or, in a dispute, either party with a resolved payout) calls `withdraw()` to actually pull their tokens out. A 3% protocol fee (`FEE_BPS`) is taken at this step and sent to the contract owner.
-4. **Completion:** once the last milestone is released, the deal is marked `Completed` automatically.
+### IdentityRegister
 
-### Why pull-payment, not push-payment
+Privacy-focused registry. Only an identity commitment (`identityHash`) and wallet addresses are stored. No personal data goes on-chain.
 
-Funds are never sent directly to a payee mid-flow. Every release just credits `pendingWithdrawals`, and the recipient withdraws it themselves via a separate transaction. This is a standard safety pattern — it means a payee's own wallet or contract logic can never block, revert, or grief a milestone release just by being unable to receive funds.
+| Function | Who | What it does |
+|---|---|---|
+| `registerIdentityWithAttestation(wallet, identityHash, deadline, signature)` | The wallet itself, after signing `CoreAgreement` | Registers a new identity with `wallet` as root wallet. Requires a valid verifier signature, an unexpired deadline, an unrestricted and unused `identityHash`, and a wallet not already linked. |
+| `linkWalletWithAttestation(wallet, identityHash, deadline, signature)` | The new wallet itself | Links an additional wallet to an existing verified identity (maximum 5). Requires a verifier signature over the new wallet. |
+| `changeRootWallet(identityHash, newRootWallet)` | Current root wallet | Moves the root role to another wallet already linked to the identity. |
+| `restrict` / `unrestrict(identityHash)` | Verifier | Blocks or unblocks an identity. A restricted identity fails `isVerified` and can't be used to register or link. |
+| `removeWallet(identityHash, wallet)` | Verifier | Unlinks a wallet. The root wallet and the last remaining wallet can't be removed. |
+| `unverify(identityHash)` | Verifier | Deletes the identity and unlinks all its wallets. |
+| `setVerifier(address)` | Owner | Sets the trusted verifier address (must be non-zero). |
+| `isVerified(wallet)` | Anyone (view) | True if the wallet's identity is verified, approved and not restricted. |
 
-### Identity gating
+Replay protection: each wallet has a `nonces[wallet]` counter that is included in the signed data and incremented on use, and every attestation carries a `deadline`.
 
-Every state-changing function requires `onlyVerified` — a **live** call to `IdentityRegister.isVerified(msg.sender)` on every single transaction, never a cached flag. If a party gets banned mid-deal, their very next attempted action (release, withdraw, dispute) will revert immediately, without EscrowCore needing any separate "notify" step from the identity registry.
+### AgreementRegistry
 
-### Fee structure (current)
+Source of truth for the documents behind each deal. Each deal has two documents: **Document A** (payer's terms, `docIndex` 0) and **Document B** (payee's terms, `docIndex` 1).
 
-A flat 3% (`FEE_BPS = 30`, out of `BPS_DENOMINATOR = 10_000`) is taken on every `withdraw()` call, regardless of whether the withdrawal is a normal milestone release or a dispute payout. This is simpler than the full fee waterfall described in the Lexo blueprint (97/2/1 normal vs. 96/1/2/1 disputed, with a separate arbitrator fee) — the waterfall split and RWA/yield routing are not yet implemented here.
+| Function | Who | What it does |
+|---|---|---|
+| `submitPayerDocument(dealId, hash, payer)` | `EscrowCore` only | Records Document A and the payer when a deal is created. Document A starts **unsigned**. |
+| `submitPayeeDocument(dealId, hash)` | Any verified wallet | A prospective payee submits their Document B hash. One submission per candidate, and only while no payee is selected. |
+| `acceptPayeeAgreement(dealId, candidate, payerSignature)` | Payer | Accepts a candidate's Document B using the payer's EIP-712 signature over it. Selects the payee, marks Document B as payer-signed, and calls `EscrowCore.syncPayeeFromRegistry`. |
+| `rejectPayeeAgreement(dealId, candidate)` | Payer | Removes a candidate's submitted document. |
+| `signDocument(dealId, docIndex, signature)` | Payer or payee | Signs Document A or B with an EIP-712 signature. Each party can sign each document once. |
+| `haveBothSigned(dealId)` | Anyone (view) | True when a payee is selected and both parties have signed **both** documents. |
+| `setEscrowCore(address)` | Owner, once | Links the registry to `EscrowCore`. Can only be set once. |
 
----
+Helper views return the EIP-712 digest to sign: `getSigningDigest` and `getCandidateSigningDigest`.
 
-### ⚠️ Dispute Resolution — Work In Progress, Not Yet Functional
+### EscrowCore
 
-The dispute/arbitration path in this contract is early scaffolding, not a finished feature. Known open items, to be resolved before this is relied on:
+Milestone-based escrow for an ERC-20 token.
 
-- **`resolveDispute` currently has a broken access-control combination.** It requires the caller to satisfy `onlyOwner` *and* a separate check that `msg.sender == address(arbiter)`. Those two can only both be true if the contract owner and the arbiter contract happen to be the same address — which isn't the intended design (the arbiter is meant to be a separate contract handling staking/commit-reveal voting, calling in on its own). This needs to be fixed as one or the other, not both, before dispute resolution is wired to a real arbitration contract.
-- **No arbitrator fee carve-out yet.** The blueprint's dispute waterfall reserves 1% specifically for arbitrators; `resolveDispute` currently just splits the full remaining balance between payer and payee with no separate fee line.
-- **No zero-address check on the constructor's `_arbiter` parameter.** A deal can currently be created and disputed with no arbiter wired up at all — `raiseDispute` will simply revert when it tries to call `arbiter.createCase(...)` on the zero address, which is a confusing failure mode rather than an explicit upfront rejection.
-- **No stake, cooldown, or evidence requirement on raising a dispute.** Either party can call `raiseDispute` at any point while a deal is in progress, with just a free-text reason string. The staking/commit-reveal arbitration system described in the blueprint (Section 2 of the main protocol doc) is meant to sit behind `IArbitrationCourt`, but that contract doesn't exist yet.
+| Function | Who | What it does |
+|---|---|---|
+| `createDeal(descriptions, amounts, invitedPayees, documentHash)` | Verified payer | Creates a deal with 1 to 15 milestones and pulls the **total** amount from the payer (the payer must approve the token first). Registers Document A in `AgreementRegistry`. |
+| `syncPayeeFromRegistry(dealId)` | `AgreementRegistry` only | Callback that sets the deal's payee once the payer accepts a Document B. The payee must be verified. |
+| `approveAndReleaseMilestone(dealId)` | Payer | Releases the **current** milestone (one per call, in order) to the payee's withdrawable balance. Requires `haveBothSigned`. The deal completes after the last milestone. |
+| `withdraw()` | Any verified wallet | Pays out the caller's `pendingWithdrawals`, minus a **0.3%** protocol fee sent to `feeRecipient`. Uses a pull pattern and a reentrancy guard. |
+| `cancelDeal(dealId, deadline, payerSig, payeeSig)` | Verified wallet | If no payee has been selected, the payer can cancel alone. Otherwise it needs EIP-712 `CancelDeal` signatures from **both** payer and payee. The remaining balance is refunded to the payer. |
+| `setFeeRecipient(address)` | Owner | Changes the fee recipient. |
 
-*(Placeholder — fill in the rest of this section once the arbitration contract and the access-control fix are actually built. This gap is intentional and tracked, not accidental.)*
+Invited payees are stored for convenience but are advisory. Any verified wallet can submit a Document B, and the payer chooses.
+
+#### Dispute hooks (not part of this build)
+
+`EscrowCore` also contains `raiseDispute`, `reRaiseDispute`, `resolveDispute` and the owner-only `addArbitrator`. They are **inert unless an arbitration contract is registered** with `addArbitrator`. In the deployed build, `arbiter` is unset, so `raiseDispute` reverts and no deal can enter the `Disputed` state. The arbitration module is an unfinished concept prototype, is not deployed, and has known unresolved issues. **Do not call `addArbitrator` on the deployed contract.**
+
+## EIP-712 typed data
+
+| Contract (domain name, version) | Type |
+|---|---|
+| `IdentityRegister` ("Lexo IdentityRegister", "1") | `RegisterIdentity(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)` |
+| `IdentityRegister` | `LinkWallet(address wallet,bytes32 identityHash,uint256 nonce,uint256 deadline)` |
+| `AgreementRegistry` ("Lexo AgreementRegistry", "1") | `AgreementDoc(uint256 dealId,uint8 docIndex,bytes32 contentHash)` |
+| `EscrowCore` ("Lexo EscrowCore", "1") | `CancelDeal(uint256 dealId,uint256 nonce,uint256 deadline)` |
+
+`IdentityRegister` also exposes `getRegisterIdentityDigest` and `getLinkWalletDigest` for building and checking digests off-chain.
+
+## End-to-end flow
+
+1. **Platform terms.** The user calls `CoreAgreement.signAgreement()`.
+2. **Identity.** Off-chain checks pass and the verifier signs a `RegisterIdentity` attestation. The user submits it to `IdentityRegister`.
+3. **Extra wallets (optional).** For each additional wallet, a new screening runs, the verifier signs `LinkWallet`, and the new wallet submits it.
+4. **Create a deal.** The payer approves the token and calls `EscrowCore.createDeal`. Funds are locked and Document A is recorded.
+5. **Select a payee.** A verified payee submits Document B. The payer accepts it with an EIP-712 signature, which selects the payee.
+6. **Sign.** The payer signs Document A, and the payee signs both documents, using `signDocument`. `haveBothSigned` becomes true.
+7. **Release.** The payer calls `approveAndReleaseMilestone` for each milestone in order.
+8. **Withdraw.** The payee calls `withdraw()` and receives the released funds minus the 0.3% fee.
+
+## Roles and permissions
+
+| Role | Powers |
+|---|---|
+| **Owner** (deployer) | `IdentityRegister.setVerifier`, `AgreementRegistry.setEscrowCore` (once), `EscrowCore.setFeeRecipient`, `EscrowCore.addArbitrator` |
+| **Verifier** | Signs identity and wallet attestations. Can `restrict`, `unrestrict`, `removeWallet` and `unverify`. |
+| **Payer** | Creates and funds deals, accepts or rejects payees, approves milestones. |
+| **Payee** | Submits Document B, signs documents, withdraws released funds. |
+| **Any verified wallet** | Submits payee documents, withdraws its own balance. |
+
+## Deployment and configuration order
+
+1. Deploy `CoreAgreement(agreementHash)`.
+2. Deploy `IdentityRegister(coreAgreement)`.
+3. Call `IdentityRegister.setVerifier(verifierAddress)`.
+4. Deploy `AgreementRegistry(identityRegister)`.
+5. Deploy the token (`MockUSDT` on testnet).
+6. Deploy `EscrowCore(token, identityRegister, agreementRegistry, feeRecipient)`.
+7. Call `AgreementRegistry.setEscrowCore(escrowCore)` (one time only).
+
+Do **not** call `EscrowCore.addArbitrator`.
+
+## Build and test
+
+The project uses [Foundry](https://book.getfoundry.sh/).
+
+```bash
+forge build
+forge test
+forge test --match-test <name> -vvv   # run one test with traces
+```
+
+The test suite includes unit tests and fuzz tests for the identity, agreement and escrow contracts.
+
+## Security notes and trust assumptions
+
+- **Single verifier.** `IdentityRegister` trusts one verifier address for attestations and for `restrict`, `unrestrict`, `removeWallet` and `unverify`. If that key is compromised, an attacker could issue attestations and manage identities. The owner can also replace the verifier at any time. Moving to decentralized (DON-based) signing is future work.
+- **Replay and expiry.** Attestations carry a nonce and a deadline. Cancellation signatures carry a nonce and a deadline as well.
+- **Funds.** Withdrawals use a pull pattern with `nonReentrant`. Token transfers use `SafeERC20`.
+- **Privacy.** Only the `identityHash`, wallet addresses and document hashes are stored on-chain.
+
+## Known limitations
+
+- Unaudited prototype. Testnet only, with a mock stablecoin.
+- **No on-chain dispute path.** If a payer won't approve a milestone and the payee won't co-sign a cancellation, the remaining funds stay locked. There is no timeout or unilateral refund.
+- `linkWalletWithAttestation` does not check `CoreAgreement` on-chain. Only registration does. Any acceptance requirement for wallet linking is enforced off-chain.
+- Wallet statuses such as Active, Inactive and Removed are tracked by the off-chain backend. On-chain, a wallet is either linked to an identity or not, and the identity is either restricted or not.
+- `EscrowCore` assumes the token transfers exactly the amount requested. Fee-on-transfer or rebasing tokens are not supported.
+- Document A is created unsigned, so the payer must also call `signDocument` for it before milestones can release.
+- The dispute and arbitration code is inert in the deployed configuration, is not part of the tested system, and has known unresolved issues.
+
+## License
+
+MIT

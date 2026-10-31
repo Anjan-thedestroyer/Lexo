@@ -8,14 +8,23 @@ const AgreementSchema = new mongoose.Schema(
             ref: "Escrow",
             default: null,
         },
-        contentHash: {
+        payerContentHash: {
             type: String,
             required: true,
         },
 
-        contentLink: {
+        payerContentLink: {
             type: String,
             required: true,
+        },
+        
+        payeeContentLink:{
+            type: String,
+            default: null
+        },
+        payeeContentHash: {
+            type: String,
+            default: null,
         },
 
         payerSigned: {
@@ -37,8 +46,19 @@ const AgreementSchema = new mongoose.Schema(
         payee: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true,
+            default: null,
         },
+
+        payerAddress : {
+            type : String,
+            required : true
+        },
+        payeeAddress : {
+            type : String,
+        },
+        invitePayee:[{
+            type:String,
+        }],
 
         status: {
             type: String,

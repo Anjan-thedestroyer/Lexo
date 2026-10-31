@@ -25368,6 +25368,66 @@ function buildRiskResult(score) {
 function decisionEngine(tier) {
   return tier === "HIGH" ? "REJECT" : "APPROVE";
 }
+function getFallbackExplanation(payload) {
+  const {
+    decision,
+    type,
+    signals,
+    riskScore,
+    riskTier
+  } = payload;
+  if (type === "IDENTITY") {
+    const ageAbove17 = signals.ageAbove17;
+    const passportExpired = signals.passportExpired;
+    if (decision === "APPROVE") {
+      return `The identity verification was approved with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `${ageAbove17 === true ? "The applicant meets the configured age eligibility requirement." : "The available age verification signals satisfy the configured approval criteria."} ` + `${passportExpired === false ? "The passport is recorded as valid and unexpired." : "The available passport signals satisfy the configured approval criteria."}`;
+    }
+    if (decision === "MANUAL_REVIEW") {
+      return `The identity verification requires additional human review with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The available identity and risk signals require further assessment before a final decision can be made.`;
+    }
+    const reasons2 = [];
+    if (ageAbove17 === false) {
+      reasons2.push("the applicant does not meet the configured age eligibility requirement");
+    }
+    if (passportExpired === true) {
+      reasons2.push("the passport is recorded as expired");
+    }
+    const reasonText2 = reasons2.length ? reasons2.join(" and ") : "the identity verification signals do not satisfy the configured approval criteria";
+    return `The identity verification was rejected with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `This decision was based on ${reasonText2}.`;
+  }
+  const reasons = [];
+  if (signals.sanctions === true) {
+    reasons.push("a sanctions exposure indicator");
+  }
+  if (signals.pep === true) {
+    reasons.push("a politically exposed person (PEP) indicator");
+  }
+  if (signals.fraud === true) {
+    reasons.push("a fraud risk indicator");
+  }
+  if (signals.mixerExposure === true) {
+    reasons.push("mixer exposure");
+  }
+  if (signals.highRiskWallet === true) {
+    reasons.push("a high-risk wallet indicator");
+  }
+  if (typeof signals.walletRisk === "string" && signals.walletRisk.toUpperCase() === "HIGH") {
+    reasons.push("a high wallet risk classification");
+  }
+  if (typeof signals.transactionRisk === "string" && signals.transactionRisk.toUpperCase() === "HIGH") {
+    reasons.push("a high transaction risk classification");
+  }
+  if (decision === "APPROVE") {
+    return `The wallet addition was approved with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The available AML and wallet screening signals satisfy the configured approval criteria.`;
+  }
+  if (decision === "MANUAL_REVIEW") {
+    const reasonText2 = reasons.length ? reasons.join(", ") : "the available wallet screening signals";
+    return `The wallet addition requires additional human review with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The decision reflects ${reasonText2}, which require further assessment.`;
+  }
+  const reasonText = reasons.length ? reasons.join(", ") : "the available wallet screening results";
+  const amlScore = typeof signals.amlScore === "number" ? ` The wallet also received an AML score of ${signals.amlScore}/100.` : "";
+  return `The wallet addition was rejected with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The decision was based on ${reasonText}.${amlScore}`;
+}
 function sanitizeSignals(type, signals) {
   const allowedKeys = type === "IDENTITY" ? [
     "ageAbove17",
@@ -25395,83 +25455,167 @@ function sanitizeSignals(type, signals) {
   }
   return sanitized;
 }
-function fetchLLMExplanation(runtime2, payload) {
-  const fallbackResponse = payload.decision === "APPROVE" ? "The verification signals satisfy the configured approval criteria." : payload.decision === "MANUAL_REVIEW" ? "The verification requires additional human review based on the configured risk signals." : "The verification does not satisfy the configured approval criteria.";
-  try {
-    const apiKeySecret = runtime2.getSecret({ id: "OPENROUTER_API_KEY" }).result();
-    const apiKey = apiKeySecret.value;
-    if (!apiKey) {
-      runtime2.log("[CRE] OPENROUTER_API_KEY is not configured.");
-      return fallbackResponse;
-    }
-    const sanitizedSignals = sanitizeSignals(payload.type, payload.signals);
-    const countryRiskContext = payload.countryRisk ? `Country risk: ${payload.countryRisk.score}.` : "Country risk: unavailable.";
-    const systemPrompt = `
-You are an explanation assistant for Lexo's identity and wallet verification system.
+function getSystemPrompt(type) {
+  const verificationDescription = type === "IDENTITY" ? `
+You are explaining an identity verification decision.
+
+Consider relevant signals such as:
+- Age eligibility
+- Passport validity
+- Authentication level
+- Nationality and contextual country risk
+- Identity verification evidence
+` : `
+You are explaining a wallet addition verification decision.
+
+Consider relevant signals such as:
+- Sanctions exposure
+- Politically exposed person (PEP) indicators
+- Fraud indicators
+- Wallet risk
+- Mixer exposure
+- High-risk wallet indicators
+- Transaction risk
+- AML score
+`;
+  return `
+You are Lexo's AI verification explanation assistant.
+
+${verificationDescription}
 
 The deterministic risk engine has already calculated:
-- risk score
-- risk tier
-- final decision
+- Risk score
+- Risk tier
+- Final decision
 
-You MUST NOT change, recalculate, or override those results.
+You MUST NOT change, recalculate, or override these results.
 
-Your job is ONLY to explain the existing decision using the supplied verification signals.
+Your responsibility is ONLY to explain the existing decision using the supplied signals.
 
-Important:
-- Country risk is contextual information only.
-- Country risk must NOT be treated as proof of sanctions, fraud, criminal activity, or wrongdoing.
-- MANUAL_REVIEW means a human reviewer is required.
-- Do not invent facts.
-- Keep the explanation concise.
-- Return exactly 2 or 3 sentences.
+IMPORTANT RULES:
+
+1. Never change the supplied decision, risk score, or risk tier.
+2. Never invent verification evidence or unsupported allegations.
+3. Country risk is contextual information only.
+4. Country risk must not be treated as proof of sanctions, fraud, criminal activity, or individual wrongdoing.
+5. APPROVE means the verification satisfies the configured approval criteria.
+6. MANUAL_REVIEW means additional human review is required.
+7. REJECT means the verification does not satisfy the configured approval criteria.
+8. Explain relevant positive and negative signals.
+9. Only describe signals explicitly present in the supplied data.
+10. Keep the explanation professional and concise.
+11. Return exactly 2 or 3 sentences.
+12. Return only the explanation, without headings or bullet points.
 `;
-    const userPrompt = `
+}
+function getUserPrompt(payload, signals) {
+  return `
 Verification type: ${payload.type}
+
 Wallet: ${payload.wallet}
+
 Decision: ${payload.decision}
-Risk score: ${payload.riskScore}
+
+Risk score: ${payload.riskScore}/100
+
 Risk tier: ${payload.riskTier}
+
 Nationality: ${payload.nationality || "Unknown"}
-${countryRiskContext}
+
+Country risk score: ${payload.countryRisk?.score ?? "Unavailable"}
 
 Verification signals:
-${JSON.stringify(sanitizedSignals, null, 2)}
+
+${JSON.stringify(signals, null, 2)}
+
+Explain why the deterministic verification system reached this decision.
 `;
+}
+function extractExplanation(content) {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (Array.isArray(content)) {
+    return content.filter((item) => item.type === "text" && typeof item.text === "string").map((item) => item.text).join(" ").trim();
+  }
+  return "";
+}
+function fetchLLMExplanation(runtime2, payload) {
+  const fallbackResponse = getFallbackExplanation(payload);
+  try {
+    runtime2.log(`[CRE] Requesting ${payload.type} AI explanation...`);
+    const apiKeySecret = runtime2.getSecret({
+      id: "OPENROUTER_API_KEY"
+    }).result();
+    const apiKey = apiKeySecret.value;
+    if (typeof apiKey !== "string" || !apiKey.trim()) {
+      runtime2.log("[CRE] ERROR: OPENROUTER_API_KEY is missing or empty.");
+      return fallbackResponse;
+    }
+    runtime2.log("[CRE] OpenRouter API key loaded successfully.");
+    const sanitizedSignals = sanitizeSignals(payload.type, payload.signals);
+    const systemPrompt = getSystemPrompt(payload.type);
+    const userPrompt = getUserPrompt(payload, sanitizedSignals);
+    runtime2.log(`[CRE] Sending ${payload.type} explanation request to OpenRouter...`);
     const httpClient = new cre.capabilities.HTTPClient;
     const result = httpClient.sendRequest(runtime2, (sender) => {
+      const requestBody = {
+        model: "openrouter/free",
+        max_tokens: 300,
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: userPrompt
+          }
+        ]
+      };
+      const bodyBytes = new TextEncoder().encode(JSON.stringify(requestBody));
+      const body = Buffer.from(bodyBytes).toString("base64");
       const response = sender.sendRequest({
         url: "https://openrouter.ai/api/v1/chat/completions",
         method: "POST",
-        multiHeaders: {
-          "Content-Type": ["application/json"],
-          Authorization: [`Bearer ${apiKey}`]
+        timeout: "30s",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
         },
-        body: JSON.stringify({
-          model: "openrouter/free",
-          max_tokens: 200,
-          temperature: 0,
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt
-            },
-            {
-              role: "user",
-              content: userPrompt
-            }
-          ]
-        })
+        body
       }).result();
+      runtime2.log(`[CRE] OpenRouter HTTP status: ${response.statusCode}`);
       if (!ok(response)) {
         throw new Error(`OpenRouter HTTP ${response.statusCode}`);
       }
       const data = json(response);
-      return data.choices?.[0]?.message?.content?.trim() || fallbackResponse;
+      if (data.error) {
+        throw new Error(data.error.message || "OpenRouter API error");
+      }
+      const choice = data.choices?.[0];
+      const explanation = extractExplanation(choice?.message?.content);
+      if (!explanation) {
+        runtime2.log(`[CRE] OpenRouter returned no text. Finish reason: ${choice?.finish_reason ?? "unknown"}`);
+        runtime2.log(`[CRE] OpenRouter model: ${data.model ?? "unknown"}`);
+        runtime2.log(`[CRE] OpenRouter choices: ${data.choices?.length ?? 0}`);
+        if (choice?.message?.refusal) {
+          runtime2.log(`[CRE] OpenRouter refusal: ${choice.message.refusal}`);
+        }
+        throw new Error("OpenRouter returned an empty explanation");
+      }
+      runtime2.log(`[CRE] ${payload.type} AI explanation generated successfully.`);
+      return explanation;
     }, consensusIdenticalAggregation())().result();
-    return result || fallbackResponse;
+    if (typeof result !== "string" || !result.trim()) {
+      runtime2.log("[CRE] Empty LLM result. Using fallback explanation.");
+      return fallbackResponse;
+    }
+    return result.trim();
   } catch (error2) {
-    runtime2.log(`[CRE] LLM explanation failed: ${String(error2)}`);
+    runtime2.log(`[CRE] ${payload.type} LLM explanation failed: ${String(error2)}`);
+    runtime2.log("[CRE] Using fallback explanation.");
     return fallbackResponse;
   }
 }
@@ -25581,6 +25725,7 @@ var onHttpTrigger = async (runtime2, payload) => {
     runtime2.log(`[CRE] Chain ID: ${CHAIN_ID}`);
     runtime2.log(`[CRE] IdentityRegister: ${IDENTITY_REGISTER_ADDRESS}`);
     runtime2.log(`[CRE] Verification ID: ${verificationId}`);
+    runtime2.log(`[CRE] User ID: ${userId}`);
     runtime2.log(`[CRE] Wallet: ${normalizedWallet}`);
     runtime2.log(`[CRE] Identity hash: ${normalizedIdentityHash}`);
     runtime2.log(`[CRE] Nationality: ${nationality}`);
@@ -25593,13 +25738,15 @@ var onHttpTrigger = async (runtime2, payload) => {
       passportExpired,
       rarimoProof
     });
-    runtime2.log("[CRE] Identity signals normalized");
+    runtime2.log("[CRE] IDENTITY SIGNALS NORMALIZED");
     runtime2.log(`Country code: ${identitySignals.countryRisk.countryCode}`);
     runtime2.log(`Country score: ${identitySignals.countryRisk.score}`);
     runtime2.log(`Country level: ${identitySignals.countryRisk.level}`);
     const ruleResult = runIdentityRuleEngine(identitySignals);
+    runtime2.log("[CRE] IDENTITY RULE ENGINE RESULT");
     runtime2.log(`[CRE] Identity risk score: ${ruleResult.score}/100`);
     runtime2.log(`[CRE] Identity risk tier: ${ruleResult.tier}`);
+    runtime2.log("[CRE] NORMALIZING AML DATA");
     const amlStatus = normalizeAmlStatus(walletData?.amlStatus);
     const amlScore = walletData?.amlScore ?? null;
     const amlRiskLevel = normalizeAmlRiskLevel(walletData?.riskLevel);
@@ -25644,11 +25791,12 @@ var onHttpTrigger = async (runtime2, payload) => {
       throw new Error(`Unsupported identity decision: ${decision}`);
     }
     const approved = decision === "APPROVE";
-    runtime2.log(`[CRE] Final decision: ${decision}`);
+    runtime2.log(`[CRE] Final identity decision: ${decision}`);
     const countryRisk = {
       ...identitySignals.countryRisk,
       country: identitySignals.countryRisk.country ?? ""
     };
+    runtime2.log("[CRE] Requesting AI explanation...");
     const explanation = await fetchLLMExplanation(runtime2, {
       type: "IDENTITY",
       wallet: normalizedWallet,
@@ -25659,7 +25807,18 @@ var onHttpTrigger = async (runtime2, payload) => {
       nationality: identitySignals.nationality,
       countryRisk: identitySignals.countryRisk
     });
-    runtime2.log(`[CRE] LLM explanation: ${explanation}`);
+    runtime2.log("");
+    runtime2.log("[CRE] ========================================");
+    runtime2.log("[CRE]        LEXO IDENTITY AI EXPLANATION");
+    runtime2.log("[CRE] ========================================");
+    runtime2.log(`[CRE] Decision: ${decision}`);
+    runtime2.log(`[CRE] Identity score: ${ruleResult.score}/100`);
+    runtime2.log(`[CRE] AML penalty: ${amlPenalty}`);
+    runtime2.log(`[CRE] Combined score: ${combinedScore}/100`);
+    runtime2.log(`[CRE] Combined tier: ${combinedTier}`);
+    runtime2.log(`[CRE] Explanation: ${explanation}`);
+    runtime2.log("[CRE] ========================================");
+    runtime2.log("");
     const responseRiskFields = {
       score: combinedScore,
       tier: combinedTier,
@@ -25670,10 +25829,11 @@ var onHttpTrigger = async (runtime2, payload) => {
     };
     if (!approved) {
       runtime2.log(`[CRE] ${decision}: no identity attestation generated`);
-      return JSON.stringify({
+      const rejectionResponse = {
         approved: false,
         decision,
         ...responseRiskFields,
+        explanation,
         reason: explanation,
         wallet: normalizedWallet,
         identityHash: normalizedIdentityHash,
@@ -25686,9 +25846,13 @@ var onHttpTrigger = async (runtime2, payload) => {
         contract: IDENTITY_REGISTER_ADDRESS,
         chainId: CHAIN_ID,
         verifier: null
-      });
+      };
+      runtime2.log("[CRE] ===== IDENTITY REGISTRATION RESULT =====");
+      runtime2.log(JSON.stringify(rejectionResponse, null, 2));
+      runtime2.log("[CRE] ========================================");
+      return JSON.stringify(rejectionResponse);
     }
-    runtime2.log("[CRE] Resolving EVM network");
+    runtime2.log("[CRE] Resolving EVM network...");
     const network300 = getNetwork({
       chainFamily: "evm",
       chainSelectorName: CHAIN_SELECTOR_NAME,
@@ -25700,13 +25864,17 @@ var onHttpTrigger = async (runtime2, payload) => {
     if (Number(network300.chainId) !== CHAIN_ID) {
       throw new Error(`Unexpected chain ID: ${network300.chainId}`);
     }
+    runtime2.log(`[CRE] Connected chain ID: ${network300.chainId}`);
+    runtime2.log(`[CRE] Network selector: ${network300.chainSelector.selector}`);
     const evmClient = new cre.capabilities.EVMClient(network300.chainSelector.selector);
-    runtime2.log("[CRE] Reading identity nonce");
+    runtime2.log("[CRE] EVMClient initialized");
+    runtime2.log("[CRE] Reading identity nonce...");
     const nonceCallData = encodeFunctionData({
       abi: IDENTITY_REGISTER_ABI,
       functionName: "nonces",
       args: [normalizedWallet]
     });
+    runtime2.log(`[CRE] Nonce calldata: ${nonceCallData}`);
     const nonceResult = evmClient.callContract(runtime2, {
       call: encodeCallMsg({
         from: normalizedWallet,
@@ -25719,7 +25887,7 @@ var onHttpTrigger = async (runtime2, payload) => {
     }
     const nonce = decodeNonce(nonceResult.data);
     runtime2.log(`[CRE] On-chain nonce: ${nonce.toString()}`);
-    runtime2.log("[CRE] Reading contract verifier");
+    runtime2.log("[CRE] Reading contract verifier...");
     const verifierCallData = encodeFunctionData({
       abi: IDENTITY_REGISTER_ABI,
       functionName: "verifier"
@@ -25736,7 +25904,10 @@ var onHttpTrigger = async (runtime2, payload) => {
     }
     const onChainVerifier = decodeVerifier(verifierResult.data);
     runtime2.log(`[CRE] On-chain verifier: ${onChainVerifier}`);
-    const secret = runtime2.getSecret({ id: "CRE_VERIFIER_PRIVATE_KEY" }).result();
+    runtime2.log("[CRE] Loading CRE_VERIFIER_PRIVATE_KEY...");
+    const secret = runtime2.getSecret({
+      id: "CRE_VERIFIER_PRIVATE_KEY"
+    }).result();
     if (!secret || typeof secret.value !== "string" || !secret.value) {
       throw new Error("CRE_VERIFIER_PRIVATE_KEY secret is missing or empty");
     }
@@ -25747,12 +25918,13 @@ var onHttpTrigger = async (runtime2, payload) => {
       throw new Error(`Verifier mismatch. On-chain=${onChainVerifier}, CRE=${signingAddress}`);
     }
     runtime2.log("[CRE] Signer matches on-chain verifier");
-    const deadline = suppliedDeadline ?? Math.floor(Date.now() / 1000) + 15 * 60;
-    if (!Number.isSafeInteger(deadline) || deadline <= Math.floor(Date.now() / 1000)) {
+    const currentTimestamp = Math.floor(runtime2.now().getTime() / 1000);
+    const deadline = suppliedDeadline ?? currentTimestamp + 15 * 60;
+    if (!Number.isSafeInteger(deadline) || deadline <= currentTimestamp) {
       throw new Error("Invalid or expired attestation deadline");
     }
     runtime2.log(`[CRE] Attestation deadline: ${deadline}`);
-    runtime2.log("[CRE] Signing EIP-712 identity attestation");
+    runtime2.log("[CRE] Creating RegisterIdentity EIP-712 attestation...");
     const signature = await verifierAccount.signTypedData({
       domain: {
         name: "Lexo IdentityRegister",
@@ -25762,10 +25934,22 @@ var onHttpTrigger = async (runtime2, payload) => {
       },
       types: {
         RegisterIdentity: [
-          { name: "wallet", type: "address" },
-          { name: "identityHash", type: "bytes32" },
-          { name: "nonce", type: "uint256" },
-          { name: "deadline", type: "uint256" }
+          {
+            name: "wallet",
+            type: "address"
+          },
+          {
+            name: "identityHash",
+            type: "bytes32"
+          },
+          {
+            name: "nonce",
+            type: "uint256"
+          },
+          {
+            name: "deadline",
+            type: "uint256"
+          }
         ]
       },
       primaryType: "RegisterIdentity",
@@ -25777,11 +25961,11 @@ var onHttpTrigger = async (runtime2, payload) => {
       }
     });
     runtime2.log("[CRE] EIP-712 signature generated");
-    runtime2.log("[CRE] Identity attestation ready");
-    return JSON.stringify({
+    const attestation = {
       approved: true,
       decision,
       ...responseRiskFields,
+      explanation,
       reason: explanation,
       wallet: normalizedWallet,
       identityHash: normalizedIdentityHash,
@@ -25794,7 +25978,11 @@ var onHttpTrigger = async (runtime2, payload) => {
       contract: IDENTITY_REGISTER_ADDRESS,
       chainId: CHAIN_ID,
       verifier: onChainVerifier
-    });
+    };
+    runtime2.log("[CRE] ===== IDENTITY REGISTRATION ATTESTATION =====");
+    runtime2.log(JSON.stringify(attestation, null, 2));
+    runtime2.log("[CRE] =============================================");
+    return JSON.stringify(attestation);
   } catch (error2) {
     runtime2.log(`[CRE] Identity registration workflow failed: ${String(error2)}`);
     throw error2;

@@ -21992,35 +21992,6 @@ class Runner extends RunnerBase {
     return RunnerBase.newRunnerHelper((config, request) => new Runner(config, request), configHandlerParams);
   }
 }
-var prepareErrorResponse = (error2) => {
-  let errorMessage = null;
-  if (error2 instanceof Error) {
-    errorMessage = error2.message;
-  } else if (typeof error2 === "string") {
-    errorMessage = error2;
-  } else {
-    errorMessage = String(error2) || null;
-  }
-  if (typeof errorMessage !== "string") {
-    return null;
-  }
-  const result = create(ExecutionResultSchema, {
-    result: { case: "error", value: errorMessage }
-  });
-  return toBinary(ExecutionResultSchema, result);
-};
-var sendErrorResponse = (error2) => {
-  const payload = prepareErrorResponse(error2);
-  if (payload === null) {
-    console.error("Failed to serialize error response: the error could not be converted to a string. Original error:", error2);
-    const fallback2 = prepareErrorResponse("Unknown error: the original error could not be serialized");
-    if (fallback2 !== null) {
-      hostBindings.sendResponse(fallback2);
-    }
-    return;
-  }
-  hostBindings.sendResponse(payload);
-};
 init_secp256k1();
 function toAccount(source) {
   if (typeof source === "string") {
@@ -25421,6 +25392,66 @@ function buildRiskResult(score) {
 function decisionEngine(tier) {
   return tier === "HIGH" ? "REJECT" : "APPROVE";
 }
+function getFallbackExplanation(payload) {
+  const {
+    decision,
+    type,
+    signals,
+    riskScore,
+    riskTier
+  } = payload;
+  if (type === "IDENTITY") {
+    const ageAbove17 = signals.ageAbove17;
+    const passportExpired = signals.passportExpired;
+    if (decision === "APPROVE") {
+      return `The identity verification was approved with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `${ageAbove17 === true ? "The applicant meets the configured age eligibility requirement." : "The available age verification signals satisfy the configured approval criteria."} ` + `${passportExpired === false ? "The passport is recorded as valid and unexpired." : "The available passport signals satisfy the configured approval criteria."}`;
+    }
+    if (decision === "MANUAL_REVIEW") {
+      return `The identity verification requires additional human review with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The available identity and risk signals require further assessment before a final decision can be made.`;
+    }
+    const reasons2 = [];
+    if (ageAbove17 === false) {
+      reasons2.push("the applicant does not meet the configured age eligibility requirement");
+    }
+    if (passportExpired === true) {
+      reasons2.push("the passport is recorded as expired");
+    }
+    const reasonText2 = reasons2.length ? reasons2.join(" and ") : "the identity verification signals do not satisfy the configured approval criteria";
+    return `The identity verification was rejected with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `This decision was based on ${reasonText2}.`;
+  }
+  const reasons = [];
+  if (signals.sanctions === true) {
+    reasons.push("a sanctions exposure indicator");
+  }
+  if (signals.pep === true) {
+    reasons.push("a politically exposed person (PEP) indicator");
+  }
+  if (signals.fraud === true) {
+    reasons.push("a fraud risk indicator");
+  }
+  if (signals.mixerExposure === true) {
+    reasons.push("mixer exposure");
+  }
+  if (signals.highRiskWallet === true) {
+    reasons.push("a high-risk wallet indicator");
+  }
+  if (typeof signals.walletRisk === "string" && signals.walletRisk.toUpperCase() === "HIGH") {
+    reasons.push("a high wallet risk classification");
+  }
+  if (typeof signals.transactionRisk === "string" && signals.transactionRisk.toUpperCase() === "HIGH") {
+    reasons.push("a high transaction risk classification");
+  }
+  if (decision === "APPROVE") {
+    return `The wallet addition was approved with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The available AML and wallet screening signals satisfy the configured approval criteria.`;
+  }
+  if (decision === "MANUAL_REVIEW") {
+    const reasonText2 = reasons.length ? reasons.join(", ") : "the available wallet screening signals";
+    return `The wallet addition requires additional human review with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The decision reflects ${reasonText2}, which require further assessment.`;
+  }
+  const reasonText = reasons.length ? reasons.join(", ") : "the available wallet screening results";
+  const amlScore = typeof signals.amlScore === "number" ? ` The wallet also received an AML score of ${signals.amlScore}/100.` : "";
+  return `The wallet addition was rejected with a ${riskTier.toLowerCase()} risk score of ${riskScore}/100. ` + `The decision was based on ${reasonText}.${amlScore}`;
+}
 function sanitizeSignals(type, signals) {
   const allowedKeys = type === "IDENTITY" ? [
     "ageAbove17",
@@ -25448,83 +25479,167 @@ function sanitizeSignals(type, signals) {
   }
   return sanitized;
 }
-function fetchLLMExplanation(runtime2, payload) {
-  const fallbackResponse = payload.decision === "APPROVE" ? "The verification signals satisfy the configured approval criteria." : payload.decision === "MANUAL_REVIEW" ? "The verification requires additional human review based on the configured risk signals." : "The verification does not satisfy the configured approval criteria.";
-  try {
-    const apiKeySecret = runtime2.getSecret({ id: "OPENROUTER_API_KEY" }).result();
-    const apiKey = apiKeySecret.value;
-    if (!apiKey) {
-      runtime2.log("[CRE] OPENROUTER_API_KEY is not configured.");
-      return fallbackResponse;
-    }
-    const sanitizedSignals = sanitizeSignals(payload.type, payload.signals);
-    const countryRiskContext = payload.countryRisk ? `Country risk: ${payload.countryRisk.score}.` : "Country risk: unavailable.";
-    const systemPrompt = `
-You are an explanation assistant for Lexo's identity and wallet verification system.
+function getSystemPrompt(type) {
+  const verificationDescription = type === "IDENTITY" ? `
+You are explaining an identity verification decision.
+
+Consider relevant signals such as:
+- Age eligibility
+- Passport validity
+- Authentication level
+- Nationality and contextual country risk
+- Identity verification evidence
+` : `
+You are explaining a wallet addition verification decision.
+
+Consider relevant signals such as:
+- Sanctions exposure
+- Politically exposed person (PEP) indicators
+- Fraud indicators
+- Wallet risk
+- Mixer exposure
+- High-risk wallet indicators
+- Transaction risk
+- AML score
+`;
+  return `
+You are Lexo's AI verification explanation assistant.
+
+${verificationDescription}
 
 The deterministic risk engine has already calculated:
-- risk score
-- risk tier
-- final decision
+- Risk score
+- Risk tier
+- Final decision
 
-You MUST NOT change, recalculate, or override those results.
+You MUST NOT change, recalculate, or override these results.
 
-Your job is ONLY to explain the existing decision using the supplied verification signals.
+Your responsibility is ONLY to explain the existing decision using the supplied signals.
 
-Important:
-- Country risk is contextual information only.
-- Country risk must NOT be treated as proof of sanctions, fraud, criminal activity, or wrongdoing.
-- MANUAL_REVIEW means a human reviewer is required.
-- Do not invent facts.
-- Keep the explanation concise.
-- Return exactly 2 or 3 sentences.
+IMPORTANT RULES:
+
+1. Never change the supplied decision, risk score, or risk tier.
+2. Never invent verification evidence or unsupported allegations.
+3. Country risk is contextual information only.
+4. Country risk must not be treated as proof of sanctions, fraud, criminal activity, or individual wrongdoing.
+5. APPROVE means the verification satisfies the configured approval criteria.
+6. MANUAL_REVIEW means additional human review is required.
+7. REJECT means the verification does not satisfy the configured approval criteria.
+8. Explain relevant positive and negative signals.
+9. Only describe signals explicitly present in the supplied data.
+10. Keep the explanation professional and concise.
+11. Return exactly 2 or 3 sentences.
+12. Return only the explanation, without headings or bullet points.
 `;
-    const userPrompt = `
+}
+function getUserPrompt(payload, signals) {
+  return `
 Verification type: ${payload.type}
+
 Wallet: ${payload.wallet}
+
 Decision: ${payload.decision}
-Risk score: ${payload.riskScore}
+
+Risk score: ${payload.riskScore}/100
+
 Risk tier: ${payload.riskTier}
+
 Nationality: ${payload.nationality || "Unknown"}
-${countryRiskContext}
+
+Country risk score: ${payload.countryRisk?.score ?? "Unavailable"}
 
 Verification signals:
-${JSON.stringify(sanitizedSignals, null, 2)}
+
+${JSON.stringify(signals, null, 2)}
+
+Explain why the deterministic verification system reached this decision.
 `;
+}
+function extractExplanation(content) {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (Array.isArray(content)) {
+    return content.filter((item) => item.type === "text" && typeof item.text === "string").map((item) => item.text).join(" ").trim();
+  }
+  return "";
+}
+function fetchLLMExplanation(runtime2, payload) {
+  const fallbackResponse = getFallbackExplanation(payload);
+  try {
+    runtime2.log(`[CRE] Requesting ${payload.type} AI explanation...`);
+    const apiKeySecret = runtime2.getSecret({
+      id: "OPENROUTER_API_KEY"
+    }).result();
+    const apiKey = apiKeySecret.value;
+    if (typeof apiKey !== "string" || !apiKey.trim()) {
+      runtime2.log("[CRE] ERROR: OPENROUTER_API_KEY is missing or empty.");
+      return fallbackResponse;
+    }
+    runtime2.log("[CRE] OpenRouter API key loaded successfully.");
+    const sanitizedSignals = sanitizeSignals(payload.type, payload.signals);
+    const systemPrompt = getSystemPrompt(payload.type);
+    const userPrompt = getUserPrompt(payload, sanitizedSignals);
+    runtime2.log(`[CRE] Sending ${payload.type} explanation request to OpenRouter...`);
     const httpClient = new cre.capabilities.HTTPClient;
     const result = httpClient.sendRequest(runtime2, (sender) => {
+      const requestBody = {
+        model: "openrouter/free",
+        max_tokens: 300,
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: userPrompt
+          }
+        ]
+      };
+      const bodyBytes = new TextEncoder().encode(JSON.stringify(requestBody));
+      const body = Buffer.from(bodyBytes).toString("base64");
       const response = sender.sendRequest({
         url: "https://openrouter.ai/api/v1/chat/completions",
         method: "POST",
-        multiHeaders: {
-          "Content-Type": ["application/json"],
-          Authorization: [`Bearer ${apiKey}`]
+        timeout: "30s",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
         },
-        body: JSON.stringify({
-          model: "openrouter/free",
-          max_tokens: 200,
-          temperature: 0,
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt
-            },
-            {
-              role: "user",
-              content: userPrompt
-            }
-          ]
-        })
+        body
       }).result();
+      runtime2.log(`[CRE] OpenRouter HTTP status: ${response.statusCode}`);
       if (!ok(response)) {
         throw new Error(`OpenRouter HTTP ${response.statusCode}`);
       }
       const data = json(response);
-      return data.choices?.[0]?.message?.content?.trim() || fallbackResponse;
+      if (data.error) {
+        throw new Error(data.error.message || "OpenRouter API error");
+      }
+      const choice = data.choices?.[0];
+      const explanation = extractExplanation(choice?.message?.content);
+      if (!explanation) {
+        runtime2.log(`[CRE] OpenRouter returned no text. Finish reason: ${choice?.finish_reason ?? "unknown"}`);
+        runtime2.log(`[CRE] OpenRouter model: ${data.model ?? "unknown"}`);
+        runtime2.log(`[CRE] OpenRouter choices: ${data.choices?.length ?? 0}`);
+        if (choice?.message?.refusal) {
+          runtime2.log(`[CRE] OpenRouter refusal: ${choice.message.refusal}`);
+        }
+        throw new Error("OpenRouter returned an empty explanation");
+      }
+      runtime2.log(`[CRE] ${payload.type} AI explanation generated successfully.`);
+      return explanation;
     }, consensusIdenticalAggregation())().result();
-    return result || fallbackResponse;
+    if (typeof result !== "string" || !result.trim()) {
+      runtime2.log("[CRE] Empty LLM result. Using fallback explanation.");
+      return fallbackResponse;
+    }
+    return result.trim();
   } catch (error2) {
-    runtime2.log(`[CRE] LLM explanation failed: ${String(error2)}`);
+    runtime2.log(`[CRE] ${payload.type} LLM explanation failed: ${String(error2)}`);
+    runtime2.log("[CRE] Using fallback explanation.");
     return fallbackResponse;
   }
 }
@@ -25546,22 +25661,10 @@ var IDENTITY_REGISTER_ABI = [
 ];
 var EIP712_TYPES = {
   LinkWallet: [
-    {
-      name: "wallet",
-      type: "address"
-    },
-    {
-      name: "identityHash",
-      type: "bytes32"
-    },
-    {
-      name: "nonce",
-      type: "uint256"
-    },
-    {
-      name: "deadline",
-      type: "uint256"
-    }
+    { name: "wallet", type: "address" },
+    { name: "identityHash", type: "bytes32" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" }
   ]
 };
 function assertBytes32(value2, field) {
@@ -25634,6 +25737,7 @@ var onHttpTrigger = async (runtime2, payload) => {
     runtime2.log(`Wallet tier: ${riskResult.tier}`);
     const decision = decisionEngine(riskResult.tier);
     runtime2.log(`[CRE] Wallet decision: ${decision}`);
+    runtime2.log("[CRE] Requesting AI explanation...");
     const explanation = fetchLLMExplanation(runtime2, {
       type: "ADD_WALLET",
       wallet: normalizedWallet,
@@ -25644,7 +25748,16 @@ var onHttpTrigger = async (runtime2, payload) => {
       nationality: signals.nationality,
       countryRisk: signals.countryRisk
     });
-    runtime2.log(`[CRE] LLM explanation: ${explanation}`);
+    runtime2.log("");
+    runtime2.log("[CRE] ========================================");
+    runtime2.log("[CRE]          LEXO AI EXPLANATION");
+    runtime2.log("[CRE] ========================================");
+    runtime2.log(`[CRE] Decision: ${decision}`);
+    runtime2.log(`[CRE] Risk score: ${riskResult.score}/100`);
+    runtime2.log(`[CRE] Risk tier: ${riskResult.tier}`);
+    runtime2.log(`[CRE] Explanation: ${explanation}`);
+    runtime2.log("[CRE] ========================================");
+    runtime2.log("");
     if (decision === "REJECT") {
       runtime2.log("[CRE] Wallet rejected. No attestation generated.");
       const rejectionAttestation = {
@@ -25652,6 +25765,7 @@ var onHttpTrigger = async (runtime2, payload) => {
         decision,
         score: riskResult.score,
         tier: riskResult.tier,
+        explanation,
         reason: explanation,
         wallet: normalizedWallet,
         identityHash: normalizedIdentityHash,
@@ -25665,9 +25779,9 @@ var onHttpTrigger = async (runtime2, payload) => {
         chainId: null,
         verifier: null
       };
-      runtime2.log("[CRE] ===== WALLET ATTESTATION =====");
+      runtime2.log("[CRE] ===== WALLET REJECTION RESULT =====");
       runtime2.log(JSON.stringify(rejectionAttestation, null, 2));
-      runtime2.log("[CRE] ===============================");
+      runtime2.log("[CRE] ==================================");
       return JSON.stringify(rejectionAttestation);
     }
     const network300 = getNetwork({
@@ -25765,6 +25879,7 @@ var onHttpTrigger = async (runtime2, payload) => {
       decision,
       score: riskResult.score,
       tier: riskResult.tier,
+      explanation,
       reason: explanation,
       wallet: normalizedWallet,
       identityHash: normalizedIdentityHash,
@@ -25800,7 +25915,9 @@ async function main() {
   const runner = await Runner.newRunner();
   await runner.run(initWorkflow);
 }
-main().catch(sendErrorResponse);
+main().catch((error2) => {
+  console.error("[CRE] Wallet addition workflow failed to initialize:", error2);
+});
 export {
   initWorkflow,
   main

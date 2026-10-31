@@ -147,38 +147,45 @@ const identityRegisterService = async ({
   
   
 const commonUpdate = {
-    score: attestation.score ?? null,
-    tier: attestation.tier ?? null,
-    decision: attestation.decision,
+  score: attestation.score ?? null,
+  tier: attestation.tier ?? null,
+  decision: attestation.decision,
 
-    reasons:
-        attestation.reasons ??
-        (attestation.reason ? [attestation.reason] : []),
+  // CRE currently returns explanation and reason.
+  // Prefer explanation so the actual LLM result is saved.
+  llmExplanation:
+    attestation.explanation ??
+    attestation.llmExplanation ??
+    attestation.reason ??
+    null,
 
-    llmExplanation:
-        attestation.llmExplanation ?? attestation.reason ?? null,
+  reasons:
+    Array.isArray(attestation.reasons)
+      ? attestation.reasons
+      : attestation.reason
+        ? [attestation.reason]
+        : [],
 
-    // Prefer CRE's values; otherwise use the direct AML result.
-    amlScore:
-        attestation.amlScore ??
-        walletData?.amlScore ??
-        null,
+  amlScore:
+    attestation.amlScore ??
+    walletData?.amlScore ??
+    null,
 
-    amlStatus:
-        attestation.amlStatus ??
-        walletData?.amlStatus ??
-        "UNKNOWN",
+  amlStatus:
+    attestation.amlStatus ??
+    walletData?.amlStatus ??
+    "UNKNOWN",
 
-    amlRiskLevel:
-        attestation.amlRiskLevel ??
-        walletData?.amlRiskLevel ??
-        walletData?.riskLevel ??
-        null,
+  amlRiskLevel:
+    attestation.amlRiskLevel ??
+    walletData?.amlRiskLevel ??
+    walletData?.riskLevel ??
+    null,
 
-    countryRiskScore:
-        attestation.countryRisk?.score ?? null,
+  countryRiskScore:
+    attestation.countryRisk?.score ?? null,
 
-    shouldIssueAttestation: false,
+  shouldIssueAttestation: false,
 };
 
   // 8. Manual review

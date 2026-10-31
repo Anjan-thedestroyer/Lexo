@@ -394,3 +394,60 @@ export async function getAttestationAfterVerification(req, res) {
         });
     }
 }
+
+export const getManualReviewUsers = async (req, res) => {
+  try {
+    const page = Math.max(
+      Number.parseInt(req.query.page, 10) || 1,
+      1
+    );
+
+    const limit = Math.min(
+      Math.max(Number.parseInt(req.query.limit, 10) || 10, 1),
+      50
+    );
+
+    const skip = (page - 1) * limit;
+
+    const filter = {
+      status: "MANUAL_REVIEW",
+    };
+
+    const [verifications, total] = await Promise.all([
+      Verification.find(filter)
+        .populate({
+          path: "user",
+          select: "name email phone identityVerification status",
+        })
+        .populate({
+          path: "passport",
+          select: "identityHash nationality status",
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      Verification.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Manual review users retrieved successfully",
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      data: verifications,
+    });
+  } catch (error) {
+    console.error("Get manual review users error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve manual review users",
+    });
+  }
+};

@@ -10,6 +10,7 @@ import type { Escrow } from "@/component/escrow";
 import Navbar from "@/component/Navbar";
 import axiosInstance from "@/lib/axios";
 import ApproveMilestone from "@/component/approveMilestone";
+import Withdraw from "@/component/withdrawButton";
 
 type ApiUser = {
   _id?: string;
@@ -226,6 +227,7 @@ export default function DealsPage() {
 
         {!loading && !error && (
           <>
+            <Withdraw/>
             <ApproveMilestone />
             <MyEscrows escrows={myEscrows} />
             <ParticipatedEscrows escrows={participatedEscrows} />

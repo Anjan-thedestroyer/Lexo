@@ -50,9 +50,11 @@ export default function Home() {
                 </button>
               </Link>
 
+              <Link href={"/escrow"}>
               <button className="rounded-xl border border-white/10 bg-white/5 px-6 py-3 font-semibold text-white transition hover:bg-white/10">
                 Explore Lexo
               </button>
+              </Link>
             </div>
           </div>
         </section>
@@ -196,9 +198,11 @@ export default function Home() {
               execution.
             </p>
 
+            <Link href={"/deal"}>
             <button className="mt-8 rounded-xl bg-white px-7 py-3 font-semibold text-[#080B14]">
               Create Deal
             </button>
+            </Link>
           </div>
         </section>
       </div>

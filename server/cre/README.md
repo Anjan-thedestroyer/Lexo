@@ -1,4 +1,9 @@
 # Lexo – Chainlink CRE Risk Assessment & Identity Attestation
+## Demo Video
+
+Watch the Lexo MVP walkthrough:
+
+[![Lexo Demo](https://img.youtube.com/vi/NcG__Xuim_U/maxresdefault.jpg)](https://www.youtube.com/watch?v=NcG__Xuim_U)
 
 Lexo uses **Chainlink Runtime Environment (CRE)** to coordinate identity verification, wallet risk assessment, deterministic risk evaluation, AI-generated explanations, and cryptographic identity attestations.
 

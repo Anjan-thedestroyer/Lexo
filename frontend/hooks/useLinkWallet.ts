@@ -43,23 +43,26 @@ export function useLinkWallet() {
 
   const { writeContractAsync } = useWriteContract();
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
 
   const linkWallet = async (
     attestation: WalletAttestation
   ) => {
     if (!address) {
-      throw new Error("Please connect your wallet");
+      throw new Error("Please connect your wallet.");
     }
 
     if (!publicClient) {
-      throw new Error("Blockchain client is unavailable");
+      throw new Error("Blockchain client is unavailable.");
     }
 
-    if (!IDENTITY_REGISTER_ADDRESS ||
-        !isAddress(IDENTITY_REGISTER_ADDRESS)) {
+    if (
+      !IDENTITY_REGISTER_ADDRESS ||
+      !isAddress(IDENTITY_REGISTER_ADDRESS)
+    ) {
       throw new Error(
-        "IdentityRegister contract address is not configured"
+        "IdentityRegister contract address is not configured."
       );
     }
 
@@ -70,16 +73,14 @@ export function useLinkWallet() {
     }
 
     if (!isAddress(attestation.wallet)) {
-      throw new Error("Invalid wallet address in attestation");
+      throw new Error("Invalid wallet address in attestation.");
     }
 
     const targetWallet = getAddress(attestation.wallet);
 
-    if (
-      getAddress(address) !== targetWallet
-    ) {
+    if (getAddress(address) !== targetWallet) {
       throw new Error(
-        "Connected wallet must match the wallet being linked"
+        "Connected wallet must match the wallet being linked."
       );
     }
 
@@ -87,23 +88,27 @@ export function useLinkWallet() {
       !isHex(attestation.identityHash) ||
       attestation.identityHash.length !== 66
     ) {
-      throw new Error("Invalid identity hash");
+      throw new Error("Invalid identity hash.");
     }
 
     if (
       !isHex(attestation.signature) ||
       attestation.signature.length !== 132
     ) {
-      throw new Error("Invalid attestation signature");
+      throw new Error("Invalid attestation signature.");
     }
 
-    const nonce = BigInt(attestation.nonce);
-    const deadline = BigInt(attestation.deadline);
+    let nonce: bigint;
+    let deadline: bigint;
 
-    // ========================================================
-    // 1. CHECK CURRENT ON-CHAIN NONCE
-    // ========================================================
+    try {
+      nonce = BigInt(attestation.nonce);
+      deadline = BigInt(attestation.deadline);
+    } catch {
+      throw new Error("Invalid attestation nonce or deadline.");
+    }
 
+    // 1. Check on-chain nonce
     const currentNonce = await publicClient.readContract({
       address: IDENTITY_REGISTER_ADDRESS,
       abi: IDENTITY_REGISTER_ABI,
@@ -117,43 +122,35 @@ export function useLinkWallet() {
       );
     }
 
-    // ========================================================
-    // 2. CHECK DEADLINE
-    // ========================================================
-
+    // 2. Check attestation deadline
     const currentBlock = await publicClient.getBlock();
 
-    if (
-      BigInt(currentBlock.timestamp) > deadline
-    ) {
+    if (BigInt(currentBlock.timestamp) > deadline) {
       throw new Error(
         "Attestation has expired. Request a new attestation."
       );
     }
 
-    // ========================================================
-    // 3. SUBMIT WALLET LINK TRANSACTION
-    // ========================================================
-
-    const hash = await writeContractAsync({
-      address: IDENTITY_REGISTER_ADDRESS,
-      abi: IDENTITY_REGISTER_ABI,
-      functionName: "linkWalletWithAttestation",
-      args: [
-        targetWallet,
-        attestation.identityHash,
-        deadline,
-        attestation.signature,
-      ],
-    });
-
-    // ========================================================
-    // 4. WAIT FOR TRANSACTION CONFIRMATION
-    // ========================================================
-
-    setIsConfirming(true);
-
     try {
+      // 3. Request wallet approval and submit transaction
+      setIsSubmitting(true);
+
+      const hash = await writeContractAsync({
+        address: IDENTITY_REGISTER_ADDRESS,
+        abi: IDENTITY_REGISTER_ABI,
+        functionName: "linkWalletWithAttestation",
+        args: [
+          targetWallet,
+          attestation.identityHash,
+          deadline,
+          attestation.signature,
+        ],
+      });
+
+      // 4. Transaction submitted. Wait for confirmation.
+      setIsSubmitting(false);
+      setIsConfirming(true);
+
       const receipt =
         await publicClient.waitForTransactionReceipt({
           hash,
@@ -162,7 +159,7 @@ export function useLinkWallet() {
 
       if (receipt.status !== "success") {
         throw new Error(
-          "Wallet linking transaction failed"
+          "Wallet linking transaction failed."
         );
       }
 
@@ -172,12 +169,15 @@ export function useLinkWallet() {
         wallet: targetWallet,
       };
     } finally {
+      // Always reset loading states
+      setIsSubmitting(false);
       setIsConfirming(false);
     }
   };
 
   return {
     linkWallet,
+    isSubmitting,
     isConfirming,
   };
 }

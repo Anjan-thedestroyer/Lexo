@@ -1,4 +1,9 @@
 # Lexo: Identity-Aware Programmable Legal Agreements
+## Demo Video
+
+Watch the Lexo MVP walkthrough:
+
+[![Lexo Demo](https://img.youtube.com/vi/NcG__Xuim_U/maxresdefault.jpg)](https://www.youtube.com/watch?v=NcG__Xuim_U)
 
 **Verified people. Screened wallets. Signed agreements. Milestone escrow. AI explains the decision, and rules make it.**
 

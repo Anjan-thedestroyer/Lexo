@@ -669,16 +669,25 @@ contract IdentityRegisterTest is Test {
         // First registration increments nonce.
         assertEq(identityRegister.nonces(user), 1);
 
-        // Signature was created with nonce 0.
-        // Reusing it therefore cannot pass signature verification.
+        // 1. Reusing on already-linked wallet reverts with WalletAlreadyLinked
         bytes32 secondIdentityHash = _identityHash("identity-2");
 
         vm.prank(user);
-
-        vm.expectRevert(IdentityRegister.InvalidAttestationSigner.selector);
-
+        vm.expectRevert(IdentityRegister.WalletAlreadyLinked.selector);
         identityRegister.registerIdentityWithAttestation(
             user,
+            secondIdentityHash,
+            deadline,
+            signature
+        );
+
+        // 2. Reusing on another wallet reverts with InvalidAttestationSigner because digest was signed for user
+        address user2 = makeAddr("user-2");
+        _allowSignedAgreement(user2);
+        vm.prank(user2);
+        vm.expectRevert(IdentityRegister.InvalidAttestationSigner.selector);
+        identityRegister.registerIdentityWithAttestation(
+            user2,
             secondIdentityHash,
             deadline,
             signature

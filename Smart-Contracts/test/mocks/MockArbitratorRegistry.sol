@@ -114,6 +114,32 @@ contract MockArbitratorRegistry {
         emit ArbitratorSelected(_caseId, selected, _selectionIndex - 1, mockEligiblePool.length);
     }
 
+    function assignRandomArbiters(
+        uint256 _caseId,
+        uint256 _count
+    ) external returns (address[] memory selected) {
+        if (mockEligiblePool.length < _count) {
+            revert NotEnoughEligibleArbitrators();
+        }
+
+        selected = new address[](_count);
+        for (uint256 i = 0; i < _count; i++) {
+            address arbiter = mockEligiblePool[(_selectionIndex + i) % mockEligiblePool.length];
+            selected[i] = arbiter;
+            mockActiveCases[arbiter] += 1;
+            emit CaseAssigned(bytes32(0), arbiter, mockActiveCases[arbiter]);
+        }
+        _selectionIndex += _count;
+    }
+
+    function isArbiter(address _arbitratorWallet) external view returns (bool) {
+        return _mockEligibility[_arbitratorWallet];
+    }
+
+    function getReputation(address _arbitratorWallet) external view returns (int256) {
+        return int256(mockReputation[_arbitratorWallet]);
+    }
+
     function assignCase(address _arbitratorWallet) external {
         mockActiveCases[_arbitratorWallet] += 1;
         emit CaseAssigned(bytes32(0), _arbitratorWallet, mockActiveCases[_arbitratorWallet]);

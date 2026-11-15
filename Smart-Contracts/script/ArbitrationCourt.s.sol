@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
-import {ArbitrationCourt} from "../src/arbitration/ArbitrationCourt.sol";
+import {ArbitrationCourt} from "../src/Future-Expansions/ArbitrationCourt.sol";
 
 contract DeployArbitrationCourt is Script {
     function run() external returns (ArbitrationCourt court) {

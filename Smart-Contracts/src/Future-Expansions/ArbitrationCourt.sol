@@ -135,6 +135,10 @@ contract ArbitrationCourt is ReentrancyGuard {
     ) external returns (uint256 caseId) {
         if (_docAHash == bytes32(0) || _docBHash == bytes32(0)) revert InvalidAddress();
 
+        if (msg.sender != address(escrowCore) && _arbitrationFee > 0) {
+            token.safeTransferFrom(msg.sender, address(this), _arbitrationFee);
+        }
+
         caseId = ++caseCounter;
         Case storage c = cases[caseId];
 
@@ -165,7 +169,7 @@ contract ArbitrationCourt is ReentrancyGuard {
         if (parent.appealTriggered) revert AlreadyAppealed();
         if (block.timestamp >= parent.decidedAt + EXECUTION_DELAY) revert DeadlinePassed();
 
-        if (_arbitrationFee > 0) {
+        if (msg.sender != address(escrowCore) && _arbitrationFee > 0) {
             token.safeTransferFrom(msg.sender, address(this), _arbitrationFee);
         }
 
@@ -276,7 +280,7 @@ contract ArbitrationCourt is ReentrancyGuard {
 
     // --- 4. Execution ---
 
-    function executeCase(uint256 _caseId) external inStatus(_caseId, CaseStatus.Decided) nonReentrant {
+    function executeCase(uint256 _caseId) external nonReentrant inStatus(_caseId, CaseStatus.Decided) {
         Case storage c = cases[_caseId];
 
         if (c.appealTriggered) revert AlreadyAppealed();
@@ -311,7 +315,6 @@ contract ArbitrationCourt is ReentrancyGuard {
 
             if (winningCount > 0) {
                 uint256 perPerson = c.arbitrationFee / winningCount;
-                uint256 totalFeePool = c.arbitrationFee;
                 c.arbitrationFee = 0; // Prevent reentrancy double payouts
 
                 for (uint256 i = 0; i < c.arbiters.length; i++) {

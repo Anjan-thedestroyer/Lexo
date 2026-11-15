@@ -376,8 +376,14 @@ contract EscrowCoreTest is Test {
 
         (,,,,, EscrowCore.Status status) = escrow.deals(1);
         assertTrue(status == EscrowCore.Status.Resolved);
-        assertEq(escrow.pendingWithdrawals(payer), 500 * 1e6);
-        assertEq(escrow.pendingWithdrawals(payee), 490 * 1e6);
+
+        // 1% protocol fee applied in resolveDispute (protocolFeeBps = 100)
+        // Payer gross 500 USDT - 1% (5 USDT) = 495 USDT
+        // Payee gross 490 USDT - 1% (4.9 USDT) = 485.1 USDT
+        // FeeRecipient gets total protocol fee = 9.9 USDT
+        assertEq(escrow.pendingWithdrawals(payer), 495 * 1e6);
+        assertEq(escrow.pendingWithdrawals(payee), 485.1 * 1e6);
+        assertEq(escrow.pendingWithdrawals(feeRecipient), 9.9 * 1e6);
     }
 
     function test_RevertWhen_ResolveDisputeCalledByNonArbiter() public {
@@ -399,7 +405,7 @@ contract EscrowCoreTest is Test {
 
         // Try to resolve with incorrect total sum (500 + 500 = 1000 != 990)
         vm.prank(address(arbiter));
-        vm.expectRevert(EscrowCore.LengthMismatch.selector);
+        vm.expectRevert(EscrowCore.BalanceMismatch.selector);
         escrow.resolveDispute(1, 500 * 1e6, 500 * 1e6);
     }
 

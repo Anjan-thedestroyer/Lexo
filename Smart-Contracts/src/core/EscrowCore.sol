@@ -139,6 +139,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         address indexed oldRecipient,
         address indexed newRecipient
     );
+    event ProtocolFeeUpdated(uint256 oldBps, uint256 newBps);
     event DisputeReRaised(
         address indexed raisor,
         uint256 indexed dealId,
@@ -156,7 +157,7 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         _;
     }
     modifier onlyCourt() {
-        if (msg.sender != address(arbiter)) revert NotAuthorized();
+        if (msg.sender != address(arbiter)) revert ArbiterRequired();
         _;
     }
 
@@ -187,6 +188,12 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         if (_newFeeRecipient == address(0)) revert InvalidAddress();
         emit FeeRecipientUpdated(feeRecipient, _newFeeRecipient);
         feeRecipient = _newFeeRecipient;
+    }
+
+    function setProtocolFeeBps(uint256 _newFeeBps) external onlyOwner {
+        if (_newFeeBps > 1000) revert InvalidMilestoneCount(); // max 10%
+        emit ProtocolFeeUpdated(protocolFeeBps, _newFeeBps);
+        protocolFeeBps = _newFeeBps;
     }
 
     function addArbitrator(address _arbiter) external onlyOwner {
@@ -399,19 +406,24 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
         uint256 _dealId,
         string calldata _reason,
         uint256 _caseId
-    ) external onlyVerified {
+    ) external onlyVerified nonReentrant {
         Deal storage deal = deals[_dealId];
         if (deal.payee != msg.sender && deal.payer != msg.sender)
             revert NotAuthorized();
         if (deal.status != Status.Disputed) revert InvalidDealStatus();
+
+        uint256 arbitrationFee = deal.totalBalance / 100;
+        if (arbitrationFee == 0) revert ArbitrationFeeTooLow();
+
+        deal.totalBalance -= arbitrationFee; // Deduct 1% arbitration fee
+
         disputeLogs[_dealId] = Dispute({
             dealId: _dealId,
             raisor: msg.sender,
             reason: _reason
         });
-        uint256 arbitrationFee = deal.totalBalance / 100;
-        deal.totalBalance -= arbitrationFee; // Deduct 1% arbitration fee
-        token.transfer(address(arbiter), arbitrationFee);
+
+        token.safeTransfer(address(arbiter), arbitrationFee);
         uint256 caseId = arbiter.recreateCase(_caseId, _reason, arbitrationFee); // 1% arbitration fee
 
         emit DisputeReRaised(msg.sender, _dealId, _reason, caseId);
@@ -438,9 +450,15 @@ contract EscrowCore is Ownable, ReentrancyGuard, EIP712 {
 
         uint256 payerFee = (_payerAmount * protocolFeeBps) / 10000;
         uint256 payeeFee = (_payeeAmount * protocolFeeBps) / 10000;
+        uint256 totalProtocolFee = payerFee + payeeFee;
 
         pendingWithdrawals[deal.payer] += (_payerAmount - payerFee);
         pendingWithdrawals[deal.payee] += (_payeeAmount - payeeFee);
+
+        if (totalProtocolFee > 0) {
+            pendingWithdrawals[feeRecipient] += totalProtocolFee;
+            emit FeeCollected(address(this), totalProtocolFee);
+        }
 
         emit DisputeResolved(_dealId, _payerAmount, _payeeAmount);
     }

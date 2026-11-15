@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
-import {ArbitratorRegistry} from "../src/arbitration/ArbitratorRegistry.sol"; // Path to your contract
+import {ArbitratorRegistry} from "../src/Future-Expansions/ArbitratorRegistry.sol"; // Path to your contract
 
 contract DeployArbitratorRegistry is Script {
     function run() external returns (ArbitratorRegistry registry) {
